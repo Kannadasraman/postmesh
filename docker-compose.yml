@@ -82,8 +82,11 @@ services:
       - "${FRONTEND_PORT}:3000"
     volumes:
       - ./apps/frontend:/app
-      - frontend_node_modules:/app/node_modules
-      - frontend_next:/app/.next
+      # Keep generated dependencies and Next's dev cache out of the host bind mount.
+      # These anonymous volumes are recreated with the frontend container, preventing
+      # stale build artifacts from a different Next.js install from being reused.
+      - /app/node_modules
+      - /app/.next
     depends_on:
       - backend
     command:
@@ -99,5 +102,3 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  frontend_node_modules:
-  frontend_next:

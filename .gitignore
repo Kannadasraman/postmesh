@@ -1,0 +1,19 @@
+# Local environment configuration (keep the shared template tracked)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Operating system files
+.DS_Store
+
+# Python build and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# JavaScript build artifacts
+node_modules/
+.next/
+coverage/
