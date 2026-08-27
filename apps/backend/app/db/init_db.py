@@ -1,5 +1,5 @@
 from app.db.database import Base, engine
-from app.models import Topic
+from app.models import ResearchItem, Topic
 
 
 def init_db() -> None:

@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.research import router as research_router
 from app.api.topics import router as topics_router
 from app.db.init_db import init_db
 
@@ -15,16 +16,26 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="PostMesh API",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+    ],
     allow_credentials=False,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    allow_methods=[
+        "GET",
+        "POST",
+        "DELETE",
+        "OPTIONS",
+    ],
+    allow_headers=[
+        "Content-Type",
+    ],
 )
 
 
@@ -37,3 +48,4 @@ def health_check():
 
 
 app.include_router(topics_router)
+app.include_router(research_router)
