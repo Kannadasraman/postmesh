@@ -1,6 +1,11 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+)
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -46,11 +51,26 @@ def generate_draft(
             detail="Research item not found",
         )
 
-    try:
-        content, model_name = generate_content(
-            research_item=research_item,
-            platform=payload.platform,
+    topic = db.get(
+        Topic,
+        research_item.topic_id,
+    )
+
+    if topic is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Topic not found",
         )
+
+    try:
+        content, model_name = (
+            generate_content(
+                research_item=research_item,
+                platform=payload.platform,
+                topic_name=topic.name,
+            )
+        )
+
     except AIServiceError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -75,7 +95,9 @@ def generate_draft(
 
 @router.get(
     "/api/v1/topics/{topic_id}/drafts",
-    response_model=list[ContentDraftResponse],
+    response_model=list[
+        ContentDraftResponse
+    ],
 )
 def list_topic_drafts(
     topic_id: uuid.UUID,
@@ -95,7 +117,8 @@ def list_topic_drafts(
     drafts = db.scalars(
         select(ContentDraft)
         .where(
-            ContentDraft.topic_id == topic_id,
+            ContentDraft.topic_id
+            == topic_id,
         )
         .order_by(
             ContentDraft.updated_at.desc(),
@@ -125,17 +148,20 @@ def update_draft(
             detail="Draft not found",
         )
 
-    content = payload.content.strip()
+    content = (
+        payload.content.strip()
+    )
 
     if not content:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=(
+                status.HTTP_422_UNPROCESSABLE_ENTITY
+            ),
             detail="Draft content cannot be empty",
         )
 
     draft.content = content
 
-    # Editing any reviewed draft makes it a draft again.
     if draft.status in {
         "approved",
         "rejected",

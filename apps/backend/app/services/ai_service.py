@@ -4,117 +4,213 @@ import httpx
 
 from app.core.config import settings
 from app.models.research_item import ResearchItem
+from app.services.evidence_service import (
+    EvidenceBundle,
+    get_research_evidence,
+    is_useful_summary,
+)
 
 
 class AIServiceError(Exception):
     pass
 
 
-def _normalize_text(value: str | None) -> str:
-    if not value:
-        return ""
+def _topic_hashtag(
+    topic_name: str,
+) -> str:
+    words = re.findall(
+        r"[A-Za-z0-9]+",
+        topic_name,
+    )
 
-    return re.sub(r"\s+", " ", value).strip()
+    if not words:
+        return "#IndustryNews"
+
+    hashtag = "#" + "".join(
+        word[:1].upper()
+        + word[1:]
+        for word in words
+    )
+
+    return hashtag[:60]
 
 
-def _summary_is_limited(
-    research_item: ResearchItem,
-) -> bool:
-    summary = _normalize_text(
-        research_item.summary
-    ).lower()
+def _remove_duplicate_paragraphs(
+    content: str,
+) -> str:
+    paragraphs = re.split(
+        r"\n\s*\n",
+        content.strip(),
+    )
 
-    title = _normalize_text(
-        research_item.title
-    ).lower()
+    cleaned: list[str] = []
+    seen: set[str] = set()
 
-    if not summary:
-        return True
+    for paragraph in paragraphs:
+        paragraph = paragraph.strip()
 
-    if summary == title:
-        return True
+        if not paragraph:
+            continue
 
-    title_without_source = re.sub(
-        r"\s+-\s+[^-]+$",
-        "",
-        title,
-    ).strip()
+        fingerprint = re.sub(
+            r"\s+",
+            " ",
+            paragraph,
+        ).strip().lower()
 
-    if title_without_source and title_without_source in summary:
-        remaining = summary.replace(
-            title_without_source,
-            "",
-            1,
-        ).strip()
+        if fingerprint in seen:
+            continue
 
-        if len(remaining) < 80:
-            return True
+        seen.add(fingerprint)
+        cleaned.append(paragraph)
 
-    if len(summary) < 120:
-        return True
-
-    return False
+    return "\n\n".join(cleaned)
 
 
 def _limited_evidence_draft(
     research_item: ResearchItem,
+    evidence: EvidenceBundle,
     platform: str,
+    topic_name: str,
 ) -> str:
-    title = _normalize_text(
-        research_item.title
+    hashtag = _topic_hashtag(
+        topic_name,
     )
 
-    source = _normalize_text(
-        research_item.source
+    variant = (
+        research_item.id.int % 4
     )
 
     if platform == "x":
-        return (
-            f"{source} is reporting: {title}\n\n"
-            "Worth watching as the story develops."
-        )
+        variants = [
+            (
+                f"{evidence.title}\n\n"
+                f"New from {evidence.source}. "
+                f"One to watch in {topic_name}."
+            ),
+            (
+                f"{evidence.source}: "
+                f"{evidence.title}\n\n"
+                f"Tracking this {topic_name} story "
+                "as more details emerge."
+            ),
+            (
+                f"{evidence.title}\n\n"
+                f"A new {topic_name} item worth "
+                f"watching via {evidence.source}."
+            ),
+            (
+                f"On the radar: {evidence.title}\n\n"
+                f"Source: {evidence.source}"
+            ),
+        ]
+
+        return variants[
+            variant
+        ]
 
     if platform == "facebook":
-        return (
-            f"A recent report from {source} highlights:\n\n"
-            f"{title}\n\n"
-            "The available research currently contains only limited "
-            "details, so this is one to follow as more information "
-            "becomes available."
-        )
+        variants = [
+            (
+                f"{evidence.title}\n\n"
+                f"{evidence.source} has a new report "
+                f"related to {topic_name}.\n\n"
+                "The headline is the main verified "
+                "signal available right now, so this "
+                "is one to follow as the story develops."
+            ),
+            (
+                f"A new {topic_name} story is worth "
+                f"keeping an eye on:\n\n"
+                f"{evidence.title}\n\n"
+                f"Source: {evidence.source}"
+            ),
+            (
+                f"{evidence.source} is covering a new "
+                f"development in {topic_name}:\n\n"
+                f"{evidence.title}\n\n"
+                "More verified context will be needed "
+                "before drawing broader conclusions."
+            ),
+            (
+                f"On the {topic_name} radar today:\n\n"
+                f"{evidence.title}\n\n"
+                f"Reported by {evidence.source}. "
+                "Worth watching as more details emerge."
+            ),
+        ]
+
+        return variants[
+            variant
+        ]
 
     if platform == "blog":
         return (
-            f"{title}\n\n"
-            f"A recent report from {source} is drawing attention to "
-            "this topic.\n\n"
-            "At this stage, PostMesh has only limited source details "
-            "available, so it would be premature to draw broader "
-            "conclusions from the headline alone.\n\n"
-            "The story is worth monitoring as additional verified "
-            "information becomes available."
+            f"{evidence.title}\n\n"
+            f"{evidence.source} has surfaced a new "
+            f"story related to {topic_name}.\n\n"
+            "At the moment, the available source "
+            "material is too limited for PostMesh to "
+            "produce a detailed factual article without "
+            "risking unsupported claims.\n\n"
+            "This item is therefore best treated as a "
+            "research lead until additional source "
+            "context becomes available."
         )
 
-    return (
-        f"{title}\n\n"
-        f"A recent report from {source} puts this topic on the radar.\n\n"
-        "The source information currently available to PostMesh is "
-        "limited, so it would be premature to add conclusions or "
-        "details that have not been verified.\n\n"
-        "Worth following as more confirmed information becomes "
-        "available.\n\n"
-        "#IndustryNews"
-    )
+    variants = [
+        (
+            f"{evidence.title}\n\n"
+            f"A new item from {evidence.source} has "
+            f"surfaced around {topic_name}.\n\n"
+            "The headline is the main verified signal "
+            "available right now, so this is one to "
+            "watch rather than over-interpret.\n\n"
+            f"{hashtag} #IndustryNews"
+        ),
+        (
+            f"One to watch in {topic_name}:\n\n"
+            f"{evidence.title}\n\n"
+            f"{evidence.source} is reporting on this "
+            "development. More source detail is needed "
+            "before drawing broader conclusions.\n\n"
+            f"{hashtag} #NewsUpdate"
+        ),
+        (
+            f"{evidence.title}\n\n"
+            f"This story from {evidence.source} is now "
+            f"on the radar for anyone tracking "
+            f"{topic_name}.\n\n"
+            "For now, the headline is the verified "
+            "information available, so the next step "
+            "is to watch for fuller reporting.\n\n"
+            f"{hashtag} #IndustryNews"
+        ),
+        (
+            f"New on the {topic_name} radar:\n\n"
+            f"{evidence.title}\n\n"
+            f"Source: {evidence.source}\n\n"
+            "Worth following as additional verified "
+            "details become available.\n\n"
+            f"{hashtag} #NewsUpdate"
+        ),
+    ]
+
+    return variants[
+        variant
+    ]
 
 
 def build_prompt(
-    research_item: ResearchItem,
+    evidence: EvidenceBundle,
     platform: str,
+    topic_name: str,
 ) -> str:
     platform_instructions = {
         "linkedin": (
-            "Write a professional LinkedIn post between 100 and "
-            "180 words. Use short paragraphs and 2 to 4 relevant "
+            "Write a professional LinkedIn post between "
+            "100 and 180 words. Use a distinct opening, "
+            "short paragraphs, and 2 to 4 relevant "
             "hashtags."
         ),
         "x": (
@@ -122,32 +218,29 @@ def build_prompt(
             "260 characters."
         ),
         "facebook": (
-            "Write a conversational Facebook post between "
-            "80 and 150 words."
+            "Write a conversational Facebook post "
+            "between 80 and 150 words."
         ),
         "blog": (
-            "Write a concise blog draft between 300 and "
-            "500 words."
+            "Write a concise blog draft between "
+            "300 and 500 words."
         ),
     }
 
-    title = _normalize_text(
-        research_item.title
+    instructions = (
+        platform_instructions[
+            platform
+        ]
     )
-
-    summary = _normalize_text(
-        research_item.summary
-    )
-
-    instructions = platform_instructions[
-        platform
-    ]
 
     return f"""
 You are the content-writing assistant for PostMesh.
 
-Transform the evidence below into content while remaining
-strictly grounded in that evidence.
+Create a useful, original post using ONLY the verified
+evidence below.
+
+TOPIC:
+{topic_name}
 
 PLATFORM:
 {platform}
@@ -158,31 +251,32 @@ STYLE:
 VERIFIED EVIDENCE:
 
 Title:
-{title}
+{evidence.title}
 
 Summary:
-{summary}
+{evidence.summary}
 
 Source:
-{research_item.source}
+{evidence.source}
 
-STRICT RULES:
+STRICT GROUNDING RULES:
 
-- Use only facts explicitly present in VERIFIED EVIDENCE.
-- Treat everything not present in VERIFIED EVIDENCE as unknown.
+- Use only factual claims explicitly supported by the title
+  or summary above.
 - Do not use outside knowledge.
-- Do not infer financial performance.
-- Do not infer statistics or percentages.
-- Do not infer causes or future trends.
-- Do not infer investor behavior.
-- Do not infer product capabilities.
-- Do not invent quotations.
-- Do not invent people, companies, events, or details.
+- Do not invent statistics, quotations, people, companies,
+  product capabilities, financial results, causes, motives,
+  investor behavior, or future predictions.
+- Do not turn possibilities into facts.
 - Do not give investment advice.
-- You may provide neutral commentary about why the verified
-  topic is worth watching.
-- Clearly distinguish reported facts from commentary.
-- Do not write "Here's a post" or similar introductions.
+- Clearly distinguish facts from commentary.
+- Do not mention PostMesh.
+- Do not discuss your own writing process.
+- Do not write generic filler such as "this topic is on the
+  radar" or "worth following as more information becomes
+  available".
+- Make this post specific to the evidence supplied.
+- Vary the opening and structure naturally.
 - Return only the finished content.
 """.strip()
 
@@ -205,7 +299,9 @@ def _clean_generated_content(
 
     for prefix in prefixes:
         if lowered.startswith(prefix):
-            first_newline = content.find("\n")
+            first_newline = (
+                content.find("\n")
+            )
 
             if first_newline != -1:
                 content = content[
@@ -219,29 +315,52 @@ def _clean_generated_content(
         and content.startswith('"')
         and content.endswith('"')
     ):
-        content = content[1:-1].strip()
+        content = content[
+            1:-1
+        ].strip()
 
-    return content
+    return _remove_duplicate_paragraphs(
+        content,
+    )
 
 
 def generate_content(
     research_item: ResearchItem,
     platform: str,
+    topic_name: str,
 ) -> tuple[str, str]:
-    if _summary_is_limited(research_item):
-        content = _limited_evidence_draft(
-            research_item=research_item,
-            platform=platform,
+    evidence = get_research_evidence(
+        research_item,
+    )
+
+    if not is_useful_summary(
+        evidence.title,
+        evidence.summary,
+    ):
+        content = (
+            _limited_evidence_draft(
+                research_item=research_item,
+                evidence=evidence,
+                platform=platform,
+                topic_name=topic_name,
+            )
+        )
+
+        content = (
+            _remove_duplicate_paragraphs(
+                content,
+            )
         )
 
         return (
             content,
-            "grounded-template-v1",
+            "grounded-template-v2",
         )
 
     prompt = build_prompt(
-        research_item=research_item,
+        evidence=evidence,
         platform=platform,
+        topic_name=topic_name,
     )
 
     try:
@@ -251,12 +370,14 @@ def generate_content(
                 "/api/generate"
             ),
             json={
-                "model": settings.ollama_model,
+                "model": (
+                    settings.ollama_model
+                ),
                 "prompt": prompt,
                 "stream": False,
                 "options": {
-                    "temperature": 0.1,
-                    "num_predict": 600,
+                    "temperature": 0.2,
+                    "num_predict": 700,
                 },
             },
             timeout=120.0,
@@ -272,25 +393,27 @@ def generate_content(
 
     except httpx.TimeoutException as exc:
         raise AIServiceError(
-            "Ollama took too long to generate "
-            "the draft."
+            "Ollama took too long to generate the draft."
         ) from exc
 
     except httpx.HTTPError as exc:
         raise AIServiceError(
-            "Ollama returned an error while "
-            "generating content."
+            "Ollama returned an error while generating content."
         ) from exc
 
     try:
         data = response.json()
+
     except ValueError as exc:
         raise AIServiceError(
             "Ollama returned an invalid response."
         ) from exc
 
     content = _clean_generated_content(
-        data.get("response", "")
+        data.get(
+            "response",
+            "",
+        )
     )
 
     if not content:
