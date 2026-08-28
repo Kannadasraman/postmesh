@@ -11,6 +11,7 @@ from app.models.topic import Topic
 from app.schemas.content_draft import (
     ContentDraftResponse,
     DraftGenerateRequest,
+    DraftStatusUpdateRequest,
     DraftUpdateRequest,
 )
 from app.services.ai_service import (
@@ -80,7 +81,10 @@ def list_topic_drafts(
     topic_id: uuid.UUID,
     db: Session = Depends(get_db),
 ):
-    topic = db.get(Topic, topic_id)
+    topic = db.get(
+        Topic,
+        topic_id,
+    )
 
     if topic is None:
         raise HTTPException(
@@ -90,8 +94,12 @@ def list_topic_drafts(
 
     drafts = db.scalars(
         select(ContentDraft)
-        .where(ContentDraft.topic_id == topic_id)
-        .order_by(ContentDraft.created_at.desc())
+        .where(
+            ContentDraft.topic_id == topic_id,
+        )
+        .order_by(
+            ContentDraft.updated_at.desc(),
+        )
     ).all()
 
     return list(drafts)
@@ -117,7 +125,50 @@ def update_draft(
             detail="Draft not found",
         )
 
-    draft.content = payload.content.strip()
+    content = payload.content.strip()
+
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Draft content cannot be empty",
+        )
+
+    draft.content = content
+
+    # Editing any reviewed draft makes it a draft again.
+    if draft.status in {
+        "approved",
+        "rejected",
+    }:
+        draft.status = "draft"
+
+    db.commit()
+    db.refresh(draft)
+
+    return draft
+
+
+@router.patch(
+    "/api/v1/drafts/{draft_id}/status",
+    response_model=ContentDraftResponse,
+)
+def update_draft_status(
+    draft_id: uuid.UUID,
+    payload: DraftStatusUpdateRequest,
+    db: Session = Depends(get_db),
+):
+    draft = db.get(
+        ContentDraft,
+        draft_id,
+    )
+
+    if draft is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Draft not found",
+        )
+
+    draft.status = payload.status
 
     db.commit()
     db.refresh(draft)

@@ -8,7 +8,7 @@ from app.api.topics import router as topics_router
 
 app = FastAPI(
     title="PostMesh API",
-    version="0.3.0",
+    version="0.4.0",
 )
 
 app.add_middleware(
@@ -21,7 +21,7 @@ app.add_middleware(
     allow_methods=[
         "GET",
         "POST",
-        "PATCH"
+        "PATCH",
         "DELETE",
         "OPTIONS",
     ],

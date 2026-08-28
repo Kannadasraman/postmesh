@@ -12,6 +12,12 @@ Platform = Literal[
     "blog",
 ]
 
+DraftStatus = Literal[
+    "draft",
+    "approved",
+    "rejected",
+]
+
 
 class DraftGenerateRequest(BaseModel):
     platform: Platform = "linkedin"
@@ -24,15 +30,24 @@ class DraftUpdateRequest(BaseModel):
     )
 
 
+class DraftStatusUpdateRequest(BaseModel):
+    status: Literal[
+        "approved",
+        "rejected",
+    ]
+
+
 class ContentDraftResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+    )
 
     id: uuid.UUID
     topic_id: uuid.UUID
     research_item_id: uuid.UUID
 
     platform: str
-    status: str
+    status: DraftStatus
     content: str
     model_name: str
 

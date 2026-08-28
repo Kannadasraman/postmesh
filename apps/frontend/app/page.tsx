@@ -11,6 +11,7 @@ import {
   Sparkles,
   Trash2,
   WandSparkles,
+  X,
 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
@@ -46,7 +47,7 @@ type ContentDraft = {
   topic_id: string;
   research_item_id: string;
   platform: string;
-  status: string;
+  status: "draft" | "approved" | "rejected";
   content: string;
   model_name: string;
   created_at: string;
@@ -75,6 +76,9 @@ export default function Home() {
   const [draftContent, setDraftContent] = useState("");
   const [savingDraft, setSavingDraft] = useState(false);
   const [draftSaved, setDraftSaved] = useState(false);
+  const [updatingStatus, setUpdatingStatus] = useState<
+    "approved" | "rejected" | null
+  >(null);
   const [error, setError] = useState<string | null>(null);
 
   async function loadTopics() {
@@ -330,6 +334,63 @@ export default function Home() {
     } finally {
       setSavingDraft(false);
     }
+  }
+
+  async function updateDraftStatus(
+    nextStatus: "approved" | "rejected",
+  ) {
+    if (!selectedDraft) {
+      return;
+    }
+
+    try {
+      setError(null);
+      setDraftSaved(false);
+      setUpdatingStatus(nextStatus);
+
+      const response = await fetch(
+        `${API_URL}/api/v1/drafts/${selectedDraft.id}/status`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status: nextStatus,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(
+          body?.detail || `Unable to mark draft as ${nextStatus}.`,
+        );
+      }
+
+      const updatedDraft: ContentDraft = await response.json();
+      setSelectedDraft(updatedDraft);
+      setDraftContent(updatedDraft.content);
+    } catch (err) {
+      console.error(err);
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to update draft status.",
+      );
+    } finally {
+      setUpdatingStatus(null);
+    }
+  }
+
+  function statusBadgeClass(status: ContentDraft["status"]) {
+    if (status === "approved") {
+      return "bg-emerald-500/10 text-emerald-300";
+    }
+
+    if (status === "rejected") {
+      return "bg-red-500/10 text-red-300";
+    }
+
+    return "bg-slate-800 text-slate-400";
   }
 
   function formatDate(value: string | null) {
@@ -743,7 +804,11 @@ export default function Home() {
                         ] || selectedDraft.platform}
                       </span>
 
-                      <span className="rounded-full bg-slate-800 px-2.5 py-1 text-[11px] text-slate-400">
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${statusBadgeClass(
+                          selectedDraft.status,
+                        )}`}
+                      >
                         {selectedDraft.status}
                       </span>
                     </div>
@@ -761,6 +826,18 @@ export default function Home() {
                   )}
                 </div>
 
+                {selectedDraft.status === "approved" && (
+                  <div className="mb-4 rounded-xl border border-emerald-900/60 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-300">
+                    Approved — this draft is ready for the publishing milestone.
+                  </div>
+                )}
+
+                {selectedDraft.status === "rejected" && (
+                  <div className="mb-4 rounded-xl border border-red-900/60 bg-red-950/30 px-4 py-3 text-sm text-red-300">
+                    Rejected — edit and save the draft to return it to review.
+                  </div>
+                )}
+
                 <textarea
                   value={draftContent}
                   onChange={(event) => {
@@ -771,25 +848,81 @@ export default function Home() {
                   className="w-full resize-y rounded-xl border border-slate-700 bg-slate-950 px-4 py-4 text-sm leading-7 text-slate-200 outline-none transition focus:border-cyan-500"
                 />
 
-                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-xs text-slate-500">
-                    Edit the draft before approval. Approval and publishing are the next milestone.
-                  </p>
+                <div className="mt-4 flex flex-col gap-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs text-slate-500">
+                      {selectedDraft.status === "draft"
+                        ? "Edit and save before approving or rejecting."
+                        : "If you edit this reviewed draft and save it, PostMesh automatically returns it to draft status."}
+                    </p>
 
-                  <button
-                    type="button"
-                    disabled={savingDraft || !draftContent.trim()}
-                    onClick={() => void saveDraft()}
-                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {savingDraft ? (
-                      <Loader2 size={15} className="animate-spin" />
-                    ) : (
-                      <Save size={15} />
-                    )}
+                    <button
+                      type="button"
+                      disabled={savingDraft || !draftContent.trim()}
+                      onClick={() => void saveDraft()}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {savingDraft ? (
+                        <Loader2 size={15} className="animate-spin" />
+                      ) : (
+                        <Save size={15} />
+                      )}
 
-                    {savingDraft ? "Saving..." : "Save Draft"}
-                  </button>
+                      {savingDraft ? "Saving..." : "Save Draft"}
+                    </button>
+                  </div>
+
+                  <div className="flex flex-col gap-3 border-t border-slate-800 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs text-slate-500">
+                      Review status controls whether the draft is ready for publishing.
+                    </p>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={
+                          updatingStatus !== null ||
+                          selectedDraft.status === "rejected"
+                        }
+                        onClick={() => void updateDraftStatus("rejected")}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-900 bg-red-950/30 px-4 py-2 text-sm font-semibold text-red-300 transition hover:bg-red-950/60 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {updatingStatus === "rejected" ? (
+                          <Loader2 size={15} className="animate-spin" />
+                        ) : (
+                          <X size={15} />
+                        )}
+
+                        {updatingStatus === "rejected"
+                          ? "Rejecting..."
+                          : selectedDraft.status === "rejected"
+                            ? "Rejected"
+                            : "Reject"}
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={
+                          updatingStatus !== null ||
+                          selectedDraft.status === "approved"
+                        }
+                        onClick={() => void updateDraftStatus("approved")}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {updatingStatus === "approved" ? (
+                          <Loader2 size={15} className="animate-spin" />
+                        ) : (
+                          <Check size={15} />
+                        )}
+
+                        {updatingStatus === "approved"
+                          ? "Approving..."
+                          : selectedDraft.status === "approved"
+                            ? "Approved"
+                            : "Approve"}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </section>
             )}
