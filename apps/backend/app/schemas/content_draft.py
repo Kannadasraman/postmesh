@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 Platform = Literal[
@@ -15,6 +15,13 @@ Platform = Literal[
 
 class DraftGenerateRequest(BaseModel):
     platform: Platform = "linkedin"
+
+
+class DraftUpdateRequest(BaseModel):
+    content: str = Field(
+        min_length=1,
+        max_length=20000,
+    )
 
 
 class ContentDraftResponse(BaseModel):

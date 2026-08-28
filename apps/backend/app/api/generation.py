@@ -11,6 +11,7 @@ from app.models.topic import Topic
 from app.schemas.content_draft import (
     ContentDraftResponse,
     DraftGenerateRequest,
+    DraftUpdateRequest,
 )
 from app.services.ai_service import (
     AIServiceError,
@@ -94,3 +95,31 @@ def list_topic_drafts(
     ).all()
 
     return list(drafts)
+
+
+@router.patch(
+    "/api/v1/drafts/{draft_id}",
+    response_model=ContentDraftResponse,
+)
+def update_draft(
+    draft_id: uuid.UUID,
+    payload: DraftUpdateRequest,
+    db: Session = Depends(get_db),
+):
+    draft = db.get(
+        ContentDraft,
+        draft_id,
+    )
+
+    if draft is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Draft not found",
+        )
+
+    draft.content = payload.content.strip()
+
+    db.commit()
+    db.refresh(draft)
+
+    return draft

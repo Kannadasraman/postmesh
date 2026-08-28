@@ -103,7 +103,7 @@ def _limited_evidence_draft(
         "details that have not been verified.\n\n"
         "Worth following as more confirmed information becomes "
         "available.\n\n"
-        "#Cybersecurity #IndustryNews"
+        "#IndustryNews"
     )
 
 

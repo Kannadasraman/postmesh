@@ -1,15 +1,18 @@
 "use client";
 
 import {
+  Check,
   ExternalLink,
   Loader2,
   Plus,
   RefreshCw,
+  Save,
   Search,
   Sparkles,
   Trash2,
+  WandSparkles,
 } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
@@ -36,49 +39,58 @@ type ResearchItem = {
   created_at: string;
 };
 
+type Platform = "linkedin" | "x" | "facebook" | "blog";
+
+type ContentDraft = {
+  id: string;
+  topic_id: string;
+  research_item_id: string;
+  platform: string;
+  status: string;
+  content: string;
+  model_name: string;
+  created_at: string;
+  updated_at: string;
+};
+
+const PLATFORM_LABELS: Record<Platform, string> = {
+  linkedin: "LinkedIn",
+  x: "X",
+  facebook: "Facebook",
+  blog: "Blog",
+};
+
 export default function Home() {
   const [topics, setTopics] = useState<Topic[]>([]);
   const [topicName, setTopicName] = useState("");
   const [keywords, setKeywords] = useState("");
-
   const [loadingTopics, setLoadingTopics] = useState(true);
   const [creatingTopic, setCreatingTopic] = useState(false);
-
-  const [researchingTopicId, setResearchingTopicId] =
-    useState<string | null>(null);
-
-  const [selectedTopicId, setSelectedTopicId] =
-    useState<string | null>(null);
-
-  const [researchResults, setResearchResults] = useState<
-    Record<string, ResearchItem[]>
-  >({});
-
+  const [researchingTopicId, setResearchingTopicId] = useState<string | null>(null);
+  const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
+  const [researchResults, setResearchResults] = useState<Record<string, ResearchItem[]>>({});
+  const [platformByResearchId, setPlatformByResearchId] = useState<Record<string, Platform>>({});
+  const [generatingResearchId, setGeneratingResearchId] = useState<string | null>(null);
+  const [selectedDraft, setSelectedDraft] = useState<ContentDraft | null>(null);
+  const [draftContent, setDraftContent] = useState("");
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [draftSaved, setDraftSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function loadTopics() {
     try {
       setError(null);
-
-      const response = await fetch(
-        `${API_URL}/api/v1/topics`,
-        {
-          cache: "no-store",
-        },
-      );
-
+      const response = await fetch(`${API_URL}/api/v1/topics`, {
+        cache: "no-store",
+      });
       if (!response.ok) {
         throw new Error("Failed to load topics");
       }
-
       const data: Topic[] = await response.json();
-
       setTopics(data);
     } catch (err) {
       console.error(err);
-      setError(
-        "Unable to load topics. Check that the PostMesh API is running.",
-      );
+      setError("Unable to load topics. Check that the PostMesh API is running.");
     } finally {
       setLoadingTopics(false);
     }
@@ -87,14 +99,11 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false;
 
-    fetch(`${API_URL}/api/v1/topics`, {
-      cache: "no-store",
-    })
+    fetch(`${API_URL}/api/v1/topics`, { cache: "no-store" })
       .then((response) => {
         if (!response.ok) {
           throw new Error("Failed to load topics");
         }
-
         return response.json() as Promise<Topic[]>;
       })
       .then((data) => {
@@ -104,11 +113,8 @@ export default function Home() {
       })
       .catch((err) => {
         console.error(err);
-
         if (!cancelled) {
-          setError(
-            "Unable to load topics. Check that the PostMesh API is running.",
-          );
+          setError("Unable to load topics. Check that the PostMesh API is running.");
         }
       })
       .finally(() => {
@@ -138,21 +144,16 @@ export default function Home() {
         .map((keyword) => keyword.trim())
         .filter(Boolean);
 
-      const response = await fetch(
-        `${API_URL}/api/v1/topics`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            name: topicName.trim(),
-            keywords: parsedKeywords,
-            active: true,
-            research_frequency: "daily",
-          }),
-        },
-      );
+      const response = await fetch(`${API_URL}/api/v1/topics`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: topicName.trim(),
+          keywords: parsedKeywords,
+          active: true,
+          research_frequency: "daily",
+        }),
+      });
 
       if (!response.ok) {
         throw new Error("Failed to create topic");
@@ -160,7 +161,6 @@ export default function Home() {
 
       setTopicName("");
       setKeywords("");
-
       await loadTopics();
     } catch (err) {
       console.error(err);
@@ -174,20 +174,15 @@ export default function Home() {
     try {
       setError(null);
 
-      const response = await fetch(
-        `${API_URL}/api/v1/topics/${topicId}`,
-        {
-          method: "DELETE",
-        },
-      );
+      const response = await fetch(`${API_URL}/api/v1/topics/${topicId}`, {
+        method: "DELETE",
+      });
 
       if (!response.ok) {
         throw new Error("Failed to delete topic");
       }
 
-      setTopics((current) =>
-        current.filter((topic) => topic.id !== topicId),
-      );
+      setTopics((current) => current.filter((topic) => topic.id !== topicId));
 
       setResearchResults((current) => {
         const next = { ...current };
@@ -197,6 +192,8 @@ export default function Home() {
 
       if (selectedTopicId === topicId) {
         setSelectedTopicId(null);
+        setSelectedDraft(null);
+        setDraftContent("");
       }
     } catch (err) {
       console.error(err);
@@ -209,26 +206,20 @@ export default function Home() {
       setError(null);
       setResearchingTopicId(topic.id);
       setSelectedTopicId(topic.id);
+      setSelectedDraft(null);
+      setDraftContent("");
 
       const response = await fetch(
         `${API_URL}/api/v1/topics/${topic.id}/research`,
-        {
-          method: "POST",
-        },
+        { method: "POST" },
       );
 
       if (!response.ok) {
-        const body = await response
-          .json()
-          .catch(() => null);
-
-        throw new Error(
-          body?.detail || "Research request failed",
-        );
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.detail || "Research request failed");
       }
 
-      const data: ResearchItem[] =
-        await response.json();
+      const data: ResearchItem[] = await response.json();
 
       setResearchResults((current) => ({
         ...current,
@@ -236,12 +227,7 @@ export default function Home() {
       }));
     } catch (err) {
       console.error(err);
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Unable to research this topic.",
-      );
+      setError(err instanceof Error ? err.message : "Unable to research this topic.");
     } finally {
       setResearchingTopicId(null);
     }
@@ -251,22 +237,19 @@ export default function Home() {
     try {
       setError(null);
       setSelectedTopicId(topic.id);
+      setSelectedDraft(null);
+      setDraftContent("");
 
       const response = await fetch(
         `${API_URL}/api/v1/topics/${topic.id}/research`,
-        {
-          cache: "no-store",
-        },
+        { cache: "no-store" },
       );
 
       if (!response.ok) {
-        throw new Error(
-          "Unable to load saved research.",
-        );
+        throw new Error("Unable to load saved research.");
       }
 
-      const data: ResearchItem[] =
-        await response.json();
+      const data: ResearchItem[] = await response.json();
 
       setResearchResults((current) => ({
         ...current,
@@ -275,6 +258,77 @@ export default function Home() {
     } catch (err) {
       console.error(err);
       setError("Unable to load saved research.");
+    }
+  }
+
+  async function generateDraft(item: ResearchItem) {
+    const platform = platformByResearchId[item.id] || "linkedin";
+
+    try {
+      setError(null);
+      setDraftSaved(false);
+      setGeneratingResearchId(item.id);
+
+      const response = await fetch(
+        `${API_URL}/api/v1/research/${item.id}/generate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform }),
+        },
+      );
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.detail || "Unable to generate draft.");
+      }
+
+      const draft: ContentDraft = await response.json();
+      setSelectedDraft(draft);
+      setDraftContent(draft.content);
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : "Unable to generate draft.");
+    } finally {
+      setGeneratingResearchId(null);
+    }
+  }
+
+  async function saveDraft() {
+    if (!selectedDraft || !draftContent.trim()) {
+      return;
+    }
+
+    try {
+      setError(null);
+      setSavingDraft(true);
+      setDraftSaved(false);
+
+      const response = await fetch(
+        `${API_URL}/api/v1/drafts/${selectedDraft.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            content: draftContent.trim(),
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.detail || "Unable to save draft.");
+      }
+
+      const updatedDraft: ContentDraft = await response.json();
+      setSelectedDraft(updatedDraft);
+      setDraftContent(updatedDraft.content);
+      setDraftSaved(true);
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : "Unable to save draft.");
+    } finally {
+      setSavingDraft(false);
     }
   }
 
@@ -302,9 +356,7 @@ export default function Home() {
     return `${Math.round(score * 100)}% match`;
   }
 
-  const selectedTopic = topics.find(
-    (topic) => topic.id === selectedTopicId,
-  );
+  const selectedTopic = topics.find((topic) => topic.id === selectedTopicId);
 
   const selectedResearch =
     selectedTopicId !== null
@@ -320,20 +372,16 @@ export default function Home() {
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-500 text-slate-950">
                 <Sparkles size={19} />
               </div>
-
-              <h1 className="text-2xl font-bold tracking-tight">
-                PostMesh
-              </h1>
+              <h1 className="text-2xl font-bold tracking-tight">PostMesh</h1>
             </div>
 
             <p className="text-sm text-slate-400">
-              Discover relevant content, turn it into posts,
-              approve it, and publish.
+              Discover relevant content, generate grounded drafts, approve them, and publish.
             </p>
           </div>
 
           <div className="rounded-full border border-slate-700 bg-slate-900 px-4 py-2 text-xs text-slate-400">
-            MVP · Research Engine
+            MVP · AI Generation
           </div>
         </header>
 
@@ -347,19 +395,13 @@ export default function Home() {
           <div className="space-y-6">
             <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
               <div className="mb-5">
-                <h2 className="text-lg font-semibold">
-                  Create a topic
-                </h2>
-
+                <h2 className="text-lg font-semibold">Create a topic</h2>
                 <p className="mt-1 text-sm text-slate-400">
                   Tell PostMesh what you want to monitor.
                 </p>
               </div>
 
-              <form
-                onSubmit={createTopic}
-                className="space-y-4"
-              >
+              <form onSubmit={createTopic} className="space-y-4">
                 <div>
                   <label
                     htmlFor="topic"
@@ -367,13 +409,10 @@ export default function Home() {
                   >
                     Topic
                   </label>
-
                   <input
                     id="topic"
                     value={topicName}
-                    onChange={(event) =>
-                      setTopicName(event.target.value)
-                    }
+                    onChange={(event) => setTopicName(event.target.value)}
                     placeholder="e.g. AI Agents"
                     className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none transition placeholder:text-slate-600 focus:border-cyan-500"
                   />
@@ -386,17 +425,13 @@ export default function Home() {
                   >
                     Keywords
                   </label>
-
                   <input
                     id="keywords"
                     value={keywords}
-                    onChange={(event) =>
-                      setKeywords(event.target.value)
-                    }
+                    onChange={(event) => setKeywords(event.target.value)}
                     placeholder="agentic AI, autonomous agents"
                     className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none transition placeholder:text-slate-600 focus:border-cyan-500"
                   />
-
                   <p className="mt-2 text-xs text-slate-500">
                     Separate keywords with commas.
                   </p>
@@ -404,31 +439,22 @@ export default function Home() {
 
                 <button
                   type="submit"
-                  disabled={
-                    creatingTopic || !topicName.trim()
-                  }
+                  disabled={creatingTopic || !topicName.trim()}
                   className="flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {creatingTopic ? (
-                    <Loader2
-                      size={17}
-                      className="animate-spin"
-                    />
+                    <Loader2 size={17} className="animate-spin" />
                   ) : (
                     <Plus size={17} />
                   )}
 
-                  {creatingTopic
-                    ? "Creating..."
-                    : "Add Topic"}
+                  {creatingTopic ? "Creating..." : "Add Topic"}
                 </button>
               </form>
             </div>
 
             <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
-              <h3 className="font-semibold">
-                MVP pipeline
-              </h3>
+              <h3 className="font-semibold">MVP pipeline</h3>
 
               <div className="mt-4 space-y-3 text-sm">
                 <div className="flex items-center gap-3 text-cyan-300">
@@ -445,8 +471,8 @@ export default function Home() {
                   Trending research
                 </div>
 
-                <div className="flex items-center gap-3 text-slate-500">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-800 text-xs">
+                <div className="flex items-center gap-3 text-cyan-300">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-cyan-500/10 text-xs">
                     3
                   </span>
                   AI generation
@@ -466,38 +492,25 @@ export default function Home() {
             <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
               <div className="mb-6 flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold">
-                    Your topics
-                  </h2>
-
+                  <h2 className="text-lg font-semibold">Your topics</h2>
                   <p className="mt-1 text-sm text-slate-400">
                     Run fresh research for any topic.
                   </p>
                 </div>
 
                 <span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-400">
-                  {topics.length}{" "}
-                  {topics.length === 1
-                    ? "topic"
-                    : "topics"}
+                  {topics.length} {topics.length === 1 ? "topic" : "topics"}
                 </span>
               </div>
 
               {loadingTopics ? (
                 <div className="flex items-center gap-2 py-10 text-sm text-slate-400">
-                  <Loader2
-                    size={18}
-                    className="animate-spin"
-                  />
+                  <Loader2 size={18} className="animate-spin" />
                   Loading topics...
                 </div>
               ) : topics.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-slate-700 py-12 text-center">
-                  <Search
-                    size={24}
-                    className="mx-auto mb-3 text-slate-600"
-                  />
-
+                  <Search size={24} className="mx-auto mb-3 text-slate-600" />
                   <p className="text-sm text-slate-400">
                     Create your first topic to begin.
                   </p>
@@ -505,11 +518,8 @@ export default function Home() {
               ) : (
                 <div className="space-y-3">
                   {topics.map((topic) => {
-                    const isResearching =
-                      researchingTopicId === topic.id;
-
-                    const savedCount =
-                      researchResults[topic.id]?.length;
+                    const isResearching = researchingTopicId === topic.id;
+                    const savedCount = researchResults[topic.id]?.length;
 
                     return (
                       <div
@@ -523,10 +533,7 @@ export default function Home() {
                         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                           <div className="min-w-0">
                             <div className="flex items-center gap-3">
-                              <h3 className="truncate font-medium">
-                                {topic.name}
-                              </h3>
-
+                              <h3 className="truncate font-medium">{topic.name}</h3>
                               <span className="rounded-full border border-emerald-900 bg-emerald-950/60 px-2 py-0.5 text-[11px] text-emerald-400">
                                 Active
                               </span>
@@ -542,16 +549,11 @@ export default function Home() {
                           <div className="flex flex-wrap items-center gap-2">
                             <button
                               type="button"
-                              onClick={() =>
-                                void showSavedResearch(
-                                  topic,
-                                )
-                              }
+                              onClick={() => void showSavedResearch(topic)}
                               className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-medium text-slate-300 transition hover:border-slate-600 hover:bg-slate-800"
                             >
                               Saved
-                              {typeof savedCount ===
-                              "number"
+                              {typeof savedCount === "number"
                                 ? ` (${savedCount})`
                                 : ""}
                             </button>
@@ -559,16 +561,11 @@ export default function Home() {
                             <button
                               type="button"
                               disabled={isResearching}
-                              onClick={() =>
-                                void runResearch(topic)
-                              }
+                              onClick={() => void runResearch(topic)}
                               className="flex items-center gap-2 rounded-lg bg-cyan-500 px-3 py-2 text-xs font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               {isResearching ? (
-                                <Loader2
-                                  size={14}
-                                  className="animate-spin"
-                                />
+                                <Loader2 size={14} className="animate-spin" />
                               ) : (
                                 <RefreshCw size={14} />
                               )}
@@ -580,9 +577,7 @@ export default function Home() {
 
                             <button
                               type="button"
-                              onClick={() =>
-                                void deleteTopic(topic.id)
-                              }
+                              onClick={() => void deleteTopic(topic.id)}
                               aria-label={`Delete ${topic.name}`}
                               className="rounded-lg border border-slate-800 p-2 text-slate-500 transition hover:border-red-900 hover:bg-red-950/30 hover:text-red-400"
                             >
@@ -600,10 +595,7 @@ export default function Home() {
             <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
               <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold">
-                    Trending research
-                  </h2>
-
+                  <h2 className="text-lg font-semibold">Trending research</h2>
                   <p className="mt-1 text-sm text-slate-400">
                     {selectedTopic
                       ? `Results for ${selectedTopic.name}`
@@ -620,44 +612,34 @@ export default function Home() {
 
               {!selectedTopicId ? (
                 <div className="rounded-xl border border-dashed border-slate-700 py-14 text-center">
-                  <Search
-                    size={26}
-                    className="mx-auto mb-3 text-slate-600"
-                  />
-
+                  <Search size={26} className="mx-auto mb-3 text-slate-600" />
                   <p className="text-sm text-slate-400">
-                    Click Find Trending Content on a
-                    topic.
+                    Click Find Trending Content on a topic.
                   </p>
                 </div>
-              ) : researchingTopicId ===
-                selectedTopicId ? (
+              ) : researchingTopicId === selectedTopicId ? (
                 <div className="flex flex-col items-center justify-center rounded-xl border border-slate-800 py-14">
-                  <Loader2
-                    size={28}
-                    className="mb-4 animate-spin text-cyan-400"
-                  />
-
-                  <p className="font-medium">
-                    Researching the web...
-                  </p>
-
+                  <Loader2 size={28} className="mb-4 animate-spin text-cyan-400" />
+                  <p className="font-medium">Researching the web...</p>
                   <p className="mt-1 text-sm text-slate-500">
-                    Checking Google News and Hacker
-                    News.
+                    Checking Google News and Hacker News.
                   </p>
                 </div>
               ) : selectedResearch.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-slate-700 py-14 text-center">
                   <p className="text-sm text-slate-400">
-                    No saved research yet for this
-                    topic.
+                    No saved research yet for this topic.
                   </p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {selectedResearch.map(
-                    (item, index) => (
+                  {selectedResearch.map((item, index) => {
+                    const platform =
+                      platformByResearchId[item.id] || "linkedin";
+                    const isGenerating =
+                      generatingResearchId === item.id;
+
+                    return (
                       <article
                         key={item.id}
                         className="rounded-xl border border-slate-800 bg-slate-950/60 p-5"
@@ -674,15 +656,11 @@ export default function Home() {
                               </span>
 
                               <span className="rounded-full bg-cyan-500/10 px-2.5 py-1 text-[11px] font-medium text-cyan-300">
-                                {scoreLabel(
-                                  item.relevance_score,
-                                )}
+                                {scoreLabel(item.relevance_score)}
                               </span>
 
                               <span className="text-xs text-slate-600">
-                                {formatDate(
-                                  item.published_at,
-                                )}
+                                {formatDate(item.published_at)}
                               </span>
                             </div>
 
@@ -690,15 +668,13 @@ export default function Home() {
                               {item.title}
                             </h3>
 
-                            {item.summary &&
-                              item.summary !==
-                                item.title && (
-                                <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-400">
-                                  {item.summary}
-                                </p>
-                              )}
+                            {item.summary && item.summary !== item.title && (
+                              <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-400">
+                                {item.summary}
+                              </p>
+                            )}
 
-                            <div className="mt-4 flex items-center gap-3">
+                            <div className="mt-4 flex flex-wrap items-center gap-3">
                               <a
                                 href={item.url}
                                 target="_blank"
@@ -706,28 +682,117 @@ export default function Home() {
                                 className="inline-flex items-center gap-1.5 text-xs font-medium text-cyan-400 transition hover:text-cyan-300"
                               >
                                 Open source
-                                <ExternalLink
-                                  size={13}
-                                />
+                                <ExternalLink size={13} />
                               </a>
+
+                              <select
+                                value={platform}
+                                onChange={(event) =>
+                                  setPlatformByResearchId((current) => ({
+                                    ...current,
+                                    [item.id]: event.target.value as Platform,
+                                  }))
+                                }
+                                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 outline-none focus:border-cyan-500"
+                              >
+                                {Object.entries(PLATFORM_LABELS).map(
+                                  ([value, label]) => (
+                                    <option key={value} value={value}>
+                                      {label}
+                                    </option>
+                                  ),
+                                )}
+                              </select>
 
                               <button
                                 type="button"
-                                disabled
-                                title="AI generation is the next milestone"
-                                className="rounded-lg border border-slate-800 px-3 py-1.5 text-xs text-slate-600"
+                                disabled={isGenerating}
+                                onClick={() => void generateDraft(item)}
+                                className="inline-flex items-center gap-2 rounded-lg border border-cyan-700 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-300 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-60"
                               >
-                                Generate Post · Next
+                                {isGenerating ? (
+                                  <Loader2 size={13} className="animate-spin" />
+                                ) : (
+                                  <WandSparkles size={13} />
+                                )}
+
+                                {isGenerating
+                                  ? "Generating..."
+                                  : "Generate Post"}
                               </button>
                             </div>
                           </div>
                         </div>
                       </article>
-                    ),
-                  )}
+                    );
+                  })}
                 </div>
               )}
             </section>
+
+            {selectedDraft && (
+              <section className="rounded-2xl border border-cyan-900/60 bg-slate-900/80 p-6">
+                <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="text-lg font-semibold">Draft preview</h2>
+
+                      <span className="rounded-full bg-cyan-500/10 px-2.5 py-1 text-[11px] font-medium text-cyan-300">
+                        {PLATFORM_LABELS[
+                          selectedDraft.platform as Platform
+                        ] || selectedDraft.platform}
+                      </span>
+
+                      <span className="rounded-full bg-slate-800 px-2.5 py-1 text-[11px] text-slate-400">
+                        {selectedDraft.status}
+                      </span>
+                    </div>
+
+                    <p className="mt-1 text-xs text-slate-500">
+                      Generated with {selectedDraft.model_name}
+                    </p>
+                  </div>
+
+                  {draftSaved && (
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-400">
+                      <Check size={14} />
+                      Saved
+                    </div>
+                  )}
+                </div>
+
+                <textarea
+                  value={draftContent}
+                  onChange={(event) => {
+                    setDraftContent(event.target.value);
+                    setDraftSaved(false);
+                  }}
+                  rows={12}
+                  className="w-full resize-y rounded-xl border border-slate-700 bg-slate-950 px-4 py-4 text-sm leading-7 text-slate-200 outline-none transition focus:border-cyan-500"
+                />
+
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-slate-500">
+                    Edit the draft before approval. Approval and publishing are the next milestone.
+                  </p>
+
+                  <button
+                    type="button"
+                    disabled={savingDraft || !draftContent.trim()}
+                    onClick={() => void saveDraft()}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {savingDraft ? (
+                      <Loader2 size={15} className="animate-spin" />
+                    ) : (
+                      <Save size={15} />
+                    )}
+
+                    {savingDraft ? "Saving..." : "Save Draft"}
+                  </button>
+                </div>
+              </section>
+            )}
           </div>
         </section>
       </div>
