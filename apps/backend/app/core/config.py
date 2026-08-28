@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     database_url: str
     redis_url: str
 
+    ollama_base_url: str = "http://host.docker.internal:11434"
+    ollama_model: str = "llama3.2:3b"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",
