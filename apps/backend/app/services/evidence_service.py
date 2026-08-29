@@ -1510,6 +1510,75 @@ def _story_similarity(
     )
 
 
+def _resolved_evidence_source(
+    original_source: str,
+    resolved_url: str,
+) -> str:
+    """
+    Keep the selected research source separate from the actual
+    page that supplied extracted evidence.
+
+    This matters for aggregator entries such as Hacker News that
+    link directly to an official publisher or status page.
+    """
+    try:
+        hostname = (
+            urlparse(
+                resolved_url,
+            ).hostname
+            or ""
+        ).lower()
+    except ValueError:
+        return original_source
+
+    if not hostname:
+        return original_source
+
+    known_sources = {
+        "status.cloud.google.com": "Google Cloud Status",
+        "cloud.google.com": "Google Cloud",
+        "www.reuters.com": "Reuters",
+        "reuters.com": "Reuters",
+        "www.wsj.com": "WSJ",
+        "wsj.com": "WSJ",
+        "www.datacenterdynamics.com": "Data Center Dynamics",
+        "datacenterdynamics.com": "Data Center Dynamics",
+    }
+
+    if hostname in known_sources:
+        return known_sources[
+            hostname
+        ]
+
+    aggregator_hosts = {
+        "news.ycombinator.com",
+        "news.google.com",
+    }
+
+    if hostname in aggregator_hosts:
+        return original_source
+
+    if (
+        original_source.lower()
+        == "hacker news"
+    ):
+        host = hostname.removeprefix(
+            "www.",
+        )
+
+        domain_label = host.split(
+            "."
+        )[0]
+
+        if domain_label:
+            return domain_label.replace(
+                "-",
+                " ",
+            ).title()
+
+    return original_source
+
+
 def _direct_research_evidence(
     research_item: ResearchItem,
 ) -> EvidenceBundle:
@@ -1535,6 +1604,13 @@ def _direct_research_evidence(
         stored_summary=stored_summary,
     )
 
+    evidence_source = (
+        _resolved_evidence_source(
+            source,
+            resolved_url,
+        )
+    )
+
     enriched = (
         method != "stored"
         and is_useful_summary(
@@ -1557,7 +1633,7 @@ def _direct_research_evidence(
     return EvidenceBundle(
         title=title,
         summary=evidence_text,
-        source=source,
+        source=evidence_source,
         url=resolved_url,
         enriched=enriched,
         extraction_method=method,

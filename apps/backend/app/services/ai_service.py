@@ -491,81 +491,25 @@ def _proofread_content(
     content: str,
     platform: str,
 ) -> str:
-    if not content.strip():
-        return content
+    """
+    Deterministic cleanup only.
 
-    prompt = f"""
-You are a strict copy editor.
+    Do not send the generated draft through a second free-form
+    proofreading LLM pass. A previous proofreader call changed
+    supported dates and appended commentary.
 
-Proofread the draft below.
+    The spacing-only model pass later in the pipeline is guarded
+    by an exact non-whitespace-character comparison, so it may
+    only insert whitespace.
+    """
+    del platform
 
-RULES:
-
-- Fix grammar, punctuation, and accidental missing spaces only.
-- Carefully scan every word for accidental concatenation.
-  Examples include "sharingdeals" -> "sharing deals",
-  "initiativescould" -> "initiatives could",
-  "newbusiness" -> "new business", and
-  "centerswithin" -> "centers within".
-- Preserve every factual claim, attribution, number, date,
-  company name, and uncertainty qualifier.
-- Do not add new facts.
-- Do not remove supported facts unless needed to fix grammar.
-- Do not add commentary, lessons, calls to action, questions,
-  headings like "Here is a post", explanatory prefaces, or
-  status messages about what you changed.
-- If no edits are needed, return the original draft verbatim.
-- Never append phrases such as "No changes were made",
-  "No changes needed", or "The draft is already correct".
-- Preserve the intended platform style: {platform}.
-- Preserve hashtags.
-- Return only the corrected draft.
-
-DRAFT:
-
-{content}
-""".strip()
-
-    try:
-        response = httpx.post(
-            (
-                f"{settings.ollama_base_url}"
-                "/api/generate"
-            ),
-            json={
-                "model": WRITER_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "options": {
-                    "temperature": 0.0,
-                    "seed": 42,
-                    "num_predict": 700,
-                },
-            },
-            timeout=120.0,
-        )
-
-        response.raise_for_status()
-
-        data = response.json()
-
-    except (
-        httpx.HTTPError,
-        ValueError,
-    ):
-        return content
-
-    corrected = _clean_generated_content(
-        data.get(
-            "response",
-            "",
-        )
+    content = _strip_proofreader_meta(
+        content,
     )
 
-    return (
-        corrected
-        if corrected
-        else content
+    return _repair_known_spacing_artifacts(
+        content,
     )
 
 
