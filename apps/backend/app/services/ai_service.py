@@ -381,6 +381,77 @@ def _strip_model_intro(
     ).strip()
 
 
+def _repair_known_spacing_artifacts(
+    content: str,
+) -> str:
+    replacements = {
+        "revenue-sharingdeals": "revenue-sharing deals",
+        "sharingdeals": "sharing deals",
+        "initiativescould": "initiatives could",
+        "newbusiness": "new business",
+        "centerswithin": "centers within",
+    }
+
+    repaired = content
+
+    for bad, good in replacements.items():
+        repaired = re.sub(
+            re.escape(
+                bad,
+            ),
+            good,
+            repaired,
+            flags=re.IGNORECASE,
+        )
+
+    return repaired
+
+
+def _strip_proofreader_meta(
+    content: str,
+) -> str:
+    paragraphs = re.split(
+        r"\n\s*\n",
+        content.strip(),
+    )
+
+    meta_prefixes = (
+        "no changes were made",
+        "no changes needed",
+        "no changes are needed",
+        "the draft is already correct",
+        "the draft is grammatically correct",
+        "i made no changes",
+        "there were no grammatical errors",
+        "there are no grammatical errors",
+    )
+
+    while paragraphs:
+        last = paragraphs[-1].strip()
+        lowered = re.sub(
+            r"^[*_#\-\s]+",
+            "",
+            last.lower(),
+        )
+
+        if any(
+            lowered.startswith(
+                prefix
+            )
+            for prefix in meta_prefixes
+        ):
+            paragraphs.pop()
+            continue
+
+        break
+
+    return "\n\n".join(
+        paragraph.strip()
+        for paragraph in paragraphs
+        if paragraph.strip()
+    ).strip()
+
+
 def _clean_generated_content(
     content: str,
 ) -> str:
@@ -400,6 +471,14 @@ def _clean_generated_content(
         content = content[
             1:-1
         ].strip()
+
+    content = _strip_proofreader_meta(
+        content,
+    )
+
+    content = _repair_known_spacing_artifacts(
+        content,
+    )
 
     return _remove_duplicate_paragraphs(
         content,
@@ -421,14 +500,21 @@ Proofread the draft below.
 RULES:
 
 - Fix grammar, punctuation, and accidental missing spaces only.
-- Separate accidentally merged words such as
-  "sharingdeals", "initiativescould", or "newbusiness".
+- Carefully scan every word for accidental concatenation.
+  Examples include "sharingdeals" -> "sharing deals",
+  "initiativescould" -> "initiatives could",
+  "newbusiness" -> "new business", and
+  "centerswithin" -> "centers within".
 - Preserve every factual claim, attribution, number, date,
   company name, and uncertainty qualifier.
 - Do not add new facts.
 - Do not remove supported facts unless needed to fix grammar.
 - Do not add commentary, lessons, calls to action, questions,
-  headings like "Here is a post", or explanatory prefaces.
+  headings like "Here is a post", explanatory prefaces, or
+  status messages about what you changed.
+- If no edits are needed, return the original draft verbatim.
+- Never append phrases such as "No changes were made",
+  "No changes needed", or "The draft is already correct".
 - Preserve the intended platform style: {platform}.
 - Preserve hashtags.
 - Return only the corrected draft.
