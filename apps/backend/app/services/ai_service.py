@@ -390,6 +390,8 @@ def _repair_known_spacing_artifacts(
         "initiativescould": "initiatives could",
         "newbusiness": "new business",
         "centerswithin": "centers within",
+        "revenuefrom": "revenue from",
+        "whichwas": "which was",
     }
 
     repaired = content
@@ -658,6 +660,97 @@ def _ensure_linkedin_hashtags(
             additions
         )
     )
+
+
+def _spacing_only_cleanup(
+    content: str,
+) -> str:
+    if not content.strip():
+        return content
+
+    prompt = f"""
+You are a spacing-only copy editor.
+
+TASK:
+Insert missing spaces between accidentally merged words.
+
+EXAMPLES:
+- revenuefrom -> revenue from
+- whichwas -> which was
+- centerswithin -> centers within
+- sharingdeals -> sharing deals
+- initiativescould -> initiatives could
+- newbusiness -> new business
+
+STRICT RULES:
+- You may ONLY insert whitespace.
+- Do not delete, replace, reorder, or add any non-whitespace
+  character.
+- Do not change punctuation.
+- Do not change capitalization.
+- Do not add commentary.
+- Return only the corrected text.
+
+TEXT:
+
+{content}
+""".strip()
+
+    try:
+        response = httpx.post(
+            (
+                f"{settings.ollama_base_url}"
+                "/api/generate"
+            ),
+            json={
+                "model": WRITER_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.0,
+                    "seed": 42,
+                    "num_predict": 900,
+                },
+            },
+            timeout=120.0,
+        )
+
+        response.raise_for_status()
+        data = response.json()
+
+    except (
+        httpx.HTTPError,
+        ValueError,
+    ):
+        return content
+
+    candidate = data.get(
+        "response",
+        "",
+    ).strip()
+
+    if not candidate:
+        return content
+
+    original_nonspace = re.sub(
+        r"\s+",
+        "",
+        content,
+    )
+
+    candidate_nonspace = re.sub(
+        r"\s+",
+        "",
+        candidate,
+    )
+
+    if (
+        original_nonspace
+        != candidate_nonspace
+    ):
+        return content
+
+    return candidate
 
 
 def _draft_grounding_issues(
@@ -996,6 +1089,18 @@ def generate_content(
     content = _proofread_content(
         content,
         platform,
+    )
+
+    content = _repair_known_spacing_artifacts(
+        content,
+    )
+
+    content = _spacing_only_cleanup(
+        content,
+    )
+
+    content = _repair_known_spacing_artifacts(
+        content,
     )
 
     if platform == "linkedin":
