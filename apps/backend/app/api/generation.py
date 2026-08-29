@@ -68,6 +68,7 @@ def generate_draft(
                 research_item=research_item,
                 platform=payload.platform,
                 topic_name=topic.name,
+                db=db,
             )
         )
 
