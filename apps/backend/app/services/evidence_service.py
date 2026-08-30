@@ -1721,6 +1721,25 @@ def get_research_evidence(
     research_item: ResearchItem,
     db: Session | None = None,
 ) -> EvidenceBundle:
+    stored_title = normalize_text(research_item.title)
+    stored_summary = normalize_text(research_item.summary)
+    stored_source = normalize_text(research_item.source)
+
+    stored_evidence = EvidenceBundle(
+        title=stored_title,
+        summary=stored_summary,
+        source=stored_source,
+        url=research_item.url,
+        enriched=False,
+        extraction_method="stored",
+        selected_source=stored_source,
+        selected_url=research_item.url,
+        evidence_title=stored_title,
+    )
+
+    if is_useful_summary(stored_title, stored_summary) or db is None:
+        return stored_evidence
+
     direct = (
         _direct_research_evidence(
             research_item,

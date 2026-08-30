@@ -9,6 +9,7 @@ import app.core.config as config
 import app.services.research_service as research_service
 from app.db.database import Base
 from app.models.topic import Topic
+from app.schemas.content_draft import DraftStatusUpdateRequest
 
 
 def test_repo_root_env_file_candidate_is_included(monkeypatch, tmp_path):
@@ -119,3 +120,15 @@ def test_semantic_scores_fall_back_to_heuristic_for_large_candidate_sets(monkeyp
     scores = research_service._semantic_relevance_scores(topic, candidates)
 
     assert scores == {}
+
+
+def test_draft_status_update_accepts_rejection_feedback_and_next_post_request():
+    payload = DraftStatusUpdateRequest(
+        status="rejected",
+        review_notes="Please rewrite this with a stronger hook.",
+        request_next_post=True,
+    )
+
+    assert payload.status == "rejected"
+    assert payload.review_notes == "Please rewrite this with a stronger hook."
+    assert payload.request_next_post is True

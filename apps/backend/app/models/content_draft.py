@@ -43,6 +43,31 @@ class ContentDraft(Base):
         server_default="draft",
     )
 
+    approval_channel: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        default="in_app",
+    )
+
+    approval_recipient: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    approval_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    approval_whatsapp: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    review_notes: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
+    request_next_post: Mapped[bool] = mapped_column(
+        default=False,
+        server_default="false",
+        nullable=False,
+    )
+
     content: Mapped[str] = mapped_column(
         Text,
         nullable=False,

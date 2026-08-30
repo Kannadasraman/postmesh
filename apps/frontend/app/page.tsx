@@ -3,6 +3,7 @@
 import {
   Check,
   ExternalLink,
+  Link2,
   Loader2,
   Plus,
   RefreshCw,
@@ -40,7 +41,20 @@ type ResearchItem = {
   created_at: string;
 };
 
-type Platform = "linkedin" | "x" | "facebook" | "blog";
+type Platform =
+  | "linkedin"
+  | "x"
+  | "facebook"
+  | "instagram"
+  | "threads"
+  | "youtube"
+  | "reddit"
+  | "whatsapp"
+  | "email"
+  | "blog";
+
+type ApprovalChannel = "in_app" | "whatsapp" | "email" | "both";
+
 type PublishingStatus =
   | "scheduled"
   | "queued"
@@ -55,6 +69,12 @@ type ContentDraft = {
   research_item_id: string;
   platform: string;
   status: "draft" | "approved" | "rejected";
+  approval_channel?: string | null;
+  approval_recipient?: string | null;
+  approval_email?: string | null;
+  approval_whatsapp?: string | null;
+  review_notes?: string | null;
+  request_next_post?: boolean;
   content: string;
   model_name: string;
   created_at: string;
@@ -82,6 +102,17 @@ type PublishingJob = {
   updated_at: string;
 };
 
+type SocialConnection = {
+  id: string;
+  provider: string;
+  account_name: string;
+  account_id: string | null;
+  api_url: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
 function toDateTimeLocalValue(date: Date) {
   const pad = (value: number) => String(value).padStart(2, "0");
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -98,7 +129,20 @@ const PLATFORM_LABELS: Record<Platform, string> = {
   linkedin: "LinkedIn",
   x: "X",
   facebook: "Facebook",
+  instagram: "Instagram",
+  threads: "Threads",
+  youtube: "YouTube",
+  reddit: "Reddit",
+  whatsapp: "WhatsApp",
+  email: "Email",
   blog: "Blog",
+};
+
+const APPROVAL_CHANNEL_LABELS: Record<ApprovalChannel, string> = {
+  in_app: "In app review",
+  whatsapp: "WhatsApp",
+  email: "Email",
+  both: "Email + WhatsApp",
 };
 
 export default function Home() {
@@ -111,6 +155,12 @@ export default function Home() {
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
   const [researchResults, setResearchResults] = useState<Record<string, ResearchItem[]>>({});
   const [platformByResearchId, setPlatformByResearchId] = useState<Record<string, Platform>>({});
+  const [approvalChannel, setApprovalChannel] = useState<ApprovalChannel>("in_app");
+  const [approvalRecipient, setApprovalRecipient] = useState("");
+  const [approvalEmail, setApprovalEmail] = useState("");
+  const [approvalWhatsapp, setApprovalWhatsapp] = useState("");
+  const [reviewNotes, setReviewNotes] = useState("");
+  const [requestNextPost, setRequestNextPost] = useState(false);
   const [generatingResearchId, setGeneratingResearchId] = useState<string | null>(null);
   const [selectedDraft, setSelectedDraft] = useState<ContentDraft | null>(null);
   const [draftContent, setDraftContent] = useState("");
@@ -123,6 +173,20 @@ export default function Home() {
   const [schedulingDraft, setSchedulingDraft] = useState(false);
   const [scheduleDateTime, setScheduleDateTime] = useState(() => buildFutureScheduleValue());
   const [error, setError] = useState<string | null>(null);
+  const [connections, setConnections] = useState<SocialConnection[]>([]);
+  const [connectionProvider, setConnectionProvider] = useState<Platform>("linkedin");
+  const [connectionName, setConnectionName] = useState("");
+  const [connectionToken, setConnectionToken] = useState("");
+  const [connectionApiUrl, setConnectionApiUrl] = useState("");
+  const [savingConnection, setSavingConnection] = useState(false);
+
+  async function loadConnections() {
+    const response = await fetch(`${API_URL}/api/v1/connections`, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error("Unable to load connected accounts.");
+    }
+    setConnections(await response.json());
+  }
 
   async function loadTopics() {
     try {
@@ -171,11 +235,73 @@ export default function Home() {
       });
 
     void loadPublishingJobs();
+    void loadConnections().catch((err) => setError(err instanceof Error ? err.message : "Unable to load connected accounts."));
+
+    const params = new URLSearchParams(window.location.search);
+    const oauthProvider = params.get("oauth_provider");
+    const oauthCode = params.get("code");
+    const oauthState = params.get("state");
+    if (oauthProvider && oauthCode && oauthState) {
+      fetch(`${API_URL}/api/v1/connections/${oauthProvider}/oauth/callback?${new URLSearchParams({ code: oauthCode, state: oauthState })}`)
+        .then((response) => {
+          if (!response.ok) throw new Error("SSO connection failed.");
+          return response.json();
+        })
+        .then(() => loadConnections())
+        .then(() => window.history.replaceState({}, "", "/"))
+        .catch((err) => setError(err instanceof Error ? err.message : "SSO connection failed."));
+    }
 
     return () => {
       cancelled = true;
     };
   }, []);
+
+  async function connectAccount(event: FormEvent) {
+    event.preventDefault();
+    try {
+      setSavingConnection(true);
+      setError(null);
+      const response = await fetch(`${API_URL}/api/v1/connections`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: connectionProvider,
+          account_name: connectionName.trim(),
+          access_token: connectionToken.trim() || null,
+          api_url: connectionApiUrl.trim() || null,
+        }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.detail || "Unable to connect account.");
+      }
+      setConnectionName("");
+      setConnectionToken("");
+      setConnectionApiUrl("");
+      await loadConnections();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to connect account.");
+    } finally {
+      setSavingConnection(false);
+    }
+  }
+
+  async function startSso(provider: string) {
+    try {
+      const response = await fetch(`${API_URL}/api/v1/connections/${provider}/oauth/start`);
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.detail || "SSO is not configured.");
+      window.location.href = body.authorization_url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to start SSO.");
+    }
+  }
+
+  async function removeConnection(connectionId: string) {
+    const response = await fetch(`${API_URL}/api/v1/connections/${connectionId}`, { method: "DELETE" });
+    if (response.ok) setConnections((current) => current.filter((item) => item.id !== connectionId));
+  }
 
   async function createTopic(event: FormEvent) {
     event.preventDefault();
@@ -323,18 +449,33 @@ export default function Home() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ platform }),
+          body: JSON.stringify({
+            platform,
+            approval_channel: approvalChannel,
+            approval_recipient: approvalRecipient.trim() || null,
+            approval_email: approvalEmail.trim() || null,
+            approval_whatsapp: approvalWhatsapp.trim() || null,
+          }),
         },
       );
 
       if (!response.ok) {
         const body = await response.json().catch(() => null);
+        if (response.status === 404) {
+          throw new Error("This research result is no longer available. Run research again and choose the refreshed result.");
+        }
         throw new Error(body?.detail || "Unable to generate draft.");
       }
 
       const draft: ContentDraft = await response.json();
       setSelectedDraft(draft);
       setDraftContent(draft.content);
+      requestAnimationFrame(() => {
+        document.getElementById("draft-preview")?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : "Unable to generate draft.");
@@ -400,6 +541,8 @@ export default function Home() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             status: nextStatus,
+            review_notes: reviewNotes.trim() || null,
+            request_next_post: nextStatus === "rejected" && requestNextPost,
           }),
         },
       );
@@ -559,6 +702,46 @@ export default function Home() {
             MVP · AI Generation
           </div>
         </header>
+
+        <section className="mb-6 rounded-2xl border border-slate-800 bg-slate-900/70 p-6">
+          <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Connected accounts</h2>
+              <p className="mt-1 text-sm text-slate-400">Connect publishing accounts once, then choose them in your posting workflow.</p>
+            </div>
+            <span className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-400">{connections.length} connected</span>
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
+            <form onSubmit={connectAccount} className="space-y-3 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <select value={connectionProvider} onChange={(event) => setConnectionProvider(event.target.value as Platform)} className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500">
+                  {(["linkedin", "x", "facebook", "instagram", "threads", "youtube", "reddit", "blog"] as Platform[]).map((provider) => <option key={provider} value={provider}>{PLATFORM_LABELS[provider]}</option>)}
+                </select>
+                <input required value={connectionName} onChange={(event) => setConnectionName(event.target.value)} placeholder="Account name" className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />
+              </div>
+              <input type="password" value={connectionToken} onChange={(event) => setConnectionToken(event.target.value)} placeholder="Access token (stored encrypted)" className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />
+              <input type="url" value={connectionApiUrl} onChange={(event) => setConnectionApiUrl(event.target.value)} placeholder="Provider endpoint (optional)" className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />
+              <button disabled={savingConnection} className="inline-flex items-center gap-2 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50">
+                {savingConnection ? <Loader2 size={15} className="animate-spin" /> : <Link2 size={15} />} Add account
+              </button>
+            </form>
+
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {(["linkedin", "x", "facebook"] as Platform[]).map((provider) => (
+                  <button key={provider} type="button" onClick={() => void startSso(provider)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-300 transition hover:border-cyan-600 hover:text-cyan-300">Continue with {PLATFORM_LABELS[provider]}</button>
+                ))}
+              </div>
+              {connections.length === 0 ? <p className="text-sm text-slate-500">No accounts connected yet.</p> : connections.map((connection) => (
+                <div key={connection.id} className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                  <div><p className="text-sm font-medium text-slate-200">{connection.account_name}</p><p className="text-xs text-slate-500">{PLATFORM_LABELS[connection.provider as Platform] || connection.provider} · {connection.status}</p></div>
+                  <button type="button" onClick={() => void removeConnection(connection.id)} aria-label={`Disconnect ${connection.account_name}`} className="rounded-lg border border-slate-800 p-2 text-slate-500 hover:border-red-900 hover:text-red-400"><Trash2 size={15} /></button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
 
         {error && (
           <div className="mb-6 rounded-xl border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
@@ -906,7 +1089,7 @@ export default function Home() {
             </section>
 
             {selectedDraft && (
-              <section className="rounded-2xl border border-cyan-900/60 bg-slate-900/80 p-6">
+              <section id="draft-preview" className="rounded-2xl border border-cyan-900/60 bg-slate-900/80 p-6">
                 <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -930,6 +1113,12 @@ export default function Home() {
                     <p className="mt-1 text-xs text-slate-500">
                       Generated with {selectedDraft.model_name}
                     </p>
+                    {selectedDraft.approval_channel && (
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        Approval route: {APPROVAL_CHANNEL_LABELS[selectedDraft.approval_channel as ApprovalChannel] || selectedDraft.approval_channel}
+                        {selectedDraft.approval_recipient ? ` · ${selectedDraft.approval_recipient}` : ""}
+                      </p>
+                    )}
                   </div>
 
                   {draftSaved && (
@@ -963,6 +1152,44 @@ export default function Home() {
                 />
 
                 <div className="mt-4 flex flex-col gap-4">
+                  <div className="grid gap-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3 md:grid-cols-[1.2fr_0.8fr]">
+                    <div>
+                      <label className="mb-2 block text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                        Approval route
+                      </label>
+                      <select
+                        value={approvalChannel}
+                        onChange={(event) => setApprovalChannel(event.target.value as ApprovalChannel)}
+                        className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                      >
+                        {Object.entries(APPROVAL_CHANNEL_LABELS).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {approvalChannel === "both" ? (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <input type="email" value={approvalEmail} onChange={(event) => setApprovalEmail(event.target.value)} placeholder="Approval email" className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />
+                        <input type="tel" value={approvalWhatsapp} onChange={(event) => setApprovalWhatsapp(event.target.value)} placeholder="WhatsApp number" className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="mb-2 block text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                          Recipient
+                        </label>
+                        <input
+                          value={approvalRecipient}
+                          onChange={(event) => setApprovalRecipient(event.target.value)}
+                          placeholder={approvalChannel === "email" ? "team@company.com" : approvalChannel === "whatsapp" ? "+15551234567" : "Optional"}
+                          className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                        />
+                      </div>
+                    )}
+                  </div>
+
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <p className="text-xs text-slate-500">
                       {selectedDraft.status === "draft"
@@ -992,6 +1219,28 @@ export default function Home() {
                     </p>
 
                     <div className="flex flex-wrap gap-2">
+                      <div className="w-full rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                        <label className="mb-2 block text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                          Reviewer notes
+                        </label>
+                        <textarea
+                          value={reviewNotes}
+                          onChange={(event) => setReviewNotes(event.target.value)}
+                          rows={3}
+                          placeholder="Tell the writer what to improve or ask for another post."
+                          className="w-full resize-y rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                        />
+                        <label className="mt-3 flex items-center gap-2 text-xs text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={requestNextPost}
+                            onChange={(event) => setRequestNextPost(event.target.checked)}
+                            className="h-4 w-4 rounded border-slate-700 bg-slate-900"
+                          />
+                          Ask for the next post when rejecting
+                        </label>
+                      </div>
+
                       <button
                         type="button"
                         disabled={

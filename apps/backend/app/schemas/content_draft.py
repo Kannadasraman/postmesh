@@ -4,11 +4,16 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 Platform = Literal[
     "linkedin",
     "x",
     "facebook",
+    "instagram",
+    "threads",
+    "youtube",
+    "reddit",
+    "whatsapp",
+    "email",
     "blog",
 ]
 
@@ -21,6 +26,10 @@ DraftStatus = Literal[
 
 class DraftGenerateRequest(BaseModel):
     platform: Platform = "linkedin"
+    approval_channel: Literal["in_app", "whatsapp", "email", "both"] = "in_app"
+    approval_recipient: str | None = None
+    approval_email: str | None = None
+    approval_whatsapp: str | None = None
 
 
 class DraftUpdateRequest(BaseModel):
@@ -35,6 +44,11 @@ class DraftStatusUpdateRequest(BaseModel):
         "approved",
         "rejected",
     ]
+    review_notes: str | None = Field(
+        default=None,
+        max_length=5000,
+    )
+    request_next_post: bool = False
 
 
 class ContentDraftResponse(BaseModel):
@@ -48,6 +62,12 @@ class ContentDraftResponse(BaseModel):
 
     platform: str
     status: DraftStatus
+    approval_channel: str | None = None
+    approval_recipient: str | None = None
+    approval_email: str | None = None
+    approval_whatsapp: str | None = None
+    review_notes: str | None = None
+    request_next_post: bool = False
     content: str
     model_name: str
 

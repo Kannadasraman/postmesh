@@ -4,7 +4,9 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from app.db.database import SessionLocal
+from app.models.content_draft import ContentDraft
 from app.models.publishing_job import PublishingJob
+from app.services.social_integration import publish_to_platform
 
 
 DEFAULT_DUE_JOB_BATCH_SIZE = 50
@@ -119,20 +121,44 @@ def publish_queued_jobs(
             ] = []
 
             for job in jobs:
+                draft = db.get(
+                    ContentDraft,
+                    job.draft_id,
+                )
+
                 job.status = "publishing"
                 job.started_at = now
                 job.last_error = None
 
-                job.status = "published"
-                job.published_at = now
-                job.external_post_id = str(job.id)
-                job.external_post_url = (
-                    f"https://cloudpost.local/posts/{job.id}"
-                )
+                try:
+                    if draft is not None:
+                        result = publish_to_platform(draft, job)
+                        job.last_error = None
+                        if result.get("status") == "posted":
+                            job.external_post_id = str(result.get("response", {}).get("id", job.id))
+                            job.external_post_url = result.get("response", {}).get("url") or f"https://cloudpost.local/posts/{job.id}"
+                        elif result.get("status") == "simulated":
+                            job.external_post_url = result.get("message") or f"https://cloudpost.local/posts/{job.id}"
+                        elif result.get("status") == "sent":
+                            job.external_post_url = result.get("channel") or "approval-request"
+                    else:
+                        result = {"status": "simulated", "reason": "draft missing"}
 
-                published_ids.append(
-                    job.id,
-                )
+                    job.status = "published"
+                    job.published_at = now
+                    if job.external_post_id is None:
+                        job.external_post_id = str(job.id)
+                    if job.external_post_url is None:
+                        job.external_post_url = f"https://cloudpost.local/posts/{job.id}"
+
+                    published_ids.append(
+                        job.id,
+                    )
+
+                except Exception as exc:  # pragma: no cover - runtime integration fallback
+                    job.status = "failed"
+                    job.failed_at = now
+                    job.last_error = str(exc)
 
         return published_ids
 

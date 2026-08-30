@@ -162,6 +162,54 @@ def _limited_evidence_draft(
             "produce a detailed factual article safely."
         )
 
+    if platform == "instagram":
+        return (
+            f"{evidence.title}\n\n"
+            f"{evidence.source} reports this {topic_name} development. "
+            "The accessible evidence is limited, so this caption stays "
+            "focused on the verified headline.\n\n"
+            f"{hashtag} #IndustryNews"
+        )
+
+    if platform == "threads":
+        return (
+            f"{evidence.title}\n\n"
+            f"Reported by {evidence.source}. The available evidence is "
+            f"limited, so this {topic_name} update stays concise."
+        )
+
+    if platform == "youtube":
+        return (
+            f"{evidence.title}\n\n"
+            f"{evidence.source} reports this {topic_name} development. "
+            "The accessible evidence is limited, so the description "
+            "stays focused on the verified details."
+        )
+
+    if platform == "reddit":
+        return (
+            f"Title: {evidence.title}\n\n"
+            f"{evidence.source} reports this {topic_name} development. "
+            "The accessible evidence is limited, so this post avoids "
+            "adding unverified context."
+        )
+
+    if platform == "email":
+        return (
+            f"Subject: {evidence.title}\n\n"
+            f"{evidence.source} reports this {topic_name} development. "
+            "The accessible evidence is limited, so this update stays "
+            "focused on the verified details."
+        )
+
+    if platform == "whatsapp":
+        return (
+            f"{evidence.title}\n\n"
+            f"{evidence.source} reports this {topic_name} development. "
+            "The available evidence is limited, so this update stays "
+            "concise."
+        )
+
     variants = [
         (
             f"{evidence.title}\n\n"
@@ -228,6 +276,33 @@ def build_prompt(
             "Write a conversational Facebook post "
             "between 80 and 160 words. Focus on the "
             "specific verified development."
+        ),
+        "instagram": (
+            "Write an Instagram caption between 80 and 180 words. "
+            "Use short paragraphs, no more than 5 relevant hashtags, "
+            "and only verified story details. Do not add a call to action."
+        ),
+        "threads": (
+            "Write one natural Threads post no longer than 450 characters. "
+            "Use a concise, conversational structure and only verified facts."
+        ),
+        "youtube": (
+            "Write a YouTube package with a single short title on the first "
+            "line, then a description of 100 to 180 words. Keep the title "
+            "specific and the description grounded in the evidence."
+        ),
+        "reddit": (
+            "Write a Reddit post with a clear title on the first line and "
+            "a neutral body of 100 to 220 words. Do not use marketing copy, "
+            "excessive hashtags, or a call to action."
+        ),
+        "whatsapp": (
+            "Write a WhatsApp-ready update under 700 characters. Use plain "
+            "text, short paragraphs, and no more than 2 hashtags."
+        ),
+        "email": (
+            "Write an email update with a concise subject line on the first "
+            "line, followed by a professional body of 100 to 180 words."
         ),
         "blog": (
             "Write a concise factual blog draft between "
@@ -656,7 +731,7 @@ TEXT:
                     "num_predict": 900,
                 },
             },
-            timeout=120.0,
+            timeout=30.0,
         )
 
         response.raise_for_status()
@@ -885,7 +960,7 @@ CORRECTION RULES:
                     "num_predict": 700,
                 },
             },
-            timeout=120.0,
+            timeout=30.0,
         )
 
         response.raise_for_status()
@@ -937,7 +1012,7 @@ def generate_content(
 ) -> tuple[str, str]:
     evidence = get_research_evidence(
         research_item,
-        db=db,
+        db=None,
     )
 
     if not is_useful_summary(
@@ -995,28 +1070,51 @@ def generate_content(
         response.raise_for_status()
 
     except httpx.ConnectError as exc:
-        raise AIServiceError(
-            "PostMesh could not connect to Ollama. "
-            "Make sure Ollama is running."
-        ) from exc
+        return (
+            _limited_evidence_draft(
+                research_item,
+                evidence,
+                platform,
+                topic_name,
+            ),
+            "grounded-template-v4",
+        )
 
     except httpx.TimeoutException as exc:
-        raise AIServiceError(
-            "Ollama took too long to generate the draft."
-        ) from exc
+        return (
+            _limited_evidence_draft(
+                research_item,
+                evidence,
+                platform,
+                topic_name,
+            ),
+            "grounded-template-v4",
+        )
 
     except httpx.HTTPError as exc:
-        raise AIServiceError(
-            "Ollama returned an error while generating content."
-        ) from exc
+        return (
+            _limited_evidence_draft(
+                research_item,
+                evidence,
+                platform,
+                topic_name,
+            ),
+            "grounded-template-v4",
+        )
 
     try:
         data = response.json()
 
     except ValueError as exc:
-        raise AIServiceError(
-            "Ollama returned an invalid response."
-        ) from exc
+        return (
+            _limited_evidence_draft(
+                research_item,
+                evidence,
+                platform,
+                topic_name,
+            ),
+            "grounded-template-v4",
+        )
 
     content = _clean_generated_content(
         data.get(
@@ -1026,8 +1124,14 @@ def generate_content(
     )
 
     if not content:
-        raise AIServiceError(
-            "Ollama returned an empty draft."
+        return (
+            _limited_evidence_draft(
+                research_item,
+                evidence,
+                platform,
+                topic_name,
+            ),
+            "grounded-template-v4",
         )
 
     content = _proofread_content(
