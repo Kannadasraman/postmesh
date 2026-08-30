@@ -1,4 +1,24 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _env_file_candidates() -> list[str]:
+    current_file = Path(__file__).resolve()
+    parents = current_file.parents
+
+    candidates = [
+        Path.cwd() / ".env",
+    ]
+
+    for parent in parents[:5]:
+        candidates.append(parent / ".env")
+
+    return [
+        str(path)
+        for path in dict.fromkeys(candidates)
+        if path.exists()
+    ]
 
 
 class Settings(BaseSettings):
@@ -12,7 +32,7 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.2:3b"
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_env_file_candidates(),
         extra="ignore",
     )
 

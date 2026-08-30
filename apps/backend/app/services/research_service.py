@@ -21,11 +21,11 @@ USER_AGENT = (
 )
 
 REQUEST_TIMEOUT = 12.0
-SEMANTIC_TIMEOUT = 90.0
+SEMANTIC_TIMEOUT = 15.0
 
 MIN_SEMANTIC_RELEVANCE = 0.52
-MAX_SEMANTIC_CANDIDATES = 80
-SEMANTIC_BATCH_SIZE = 6
+MAX_SEMANTIC_CANDIDATES = 12
+SEMANTIC_BATCH_SIZE = 3
 
 
 STOP_WORDS = {
@@ -665,6 +665,9 @@ def _semantic_relevance_scores(
     if not candidates:
         return {}
 
+    if len(candidates) > MAX_SEMANTIC_CANDIDATES:
+        return {}
+
     limited_candidates = candidates[
         :MAX_SEMANTIC_CANDIDATES
     ]
@@ -1109,6 +1112,42 @@ def _deduplicate(
     return deduplicated
 
 
+def _upsert_research_item(
+    db: Session,
+    topic_id,
+    candidate: dict,
+    relevance_score: float,
+) -> None:
+    url = candidate["url"].strip()
+
+    existing = db.execute(
+        select(ResearchItem).where(
+            ResearchItem.topic_id == topic_id,
+            ResearchItem.url == url,
+        )
+    ).scalar_one_or_none()
+
+    if existing is not None:
+        existing.title = candidate["title"]
+        existing.source = candidate["source"]
+        existing.summary = candidate.get("summary")
+        existing.published_at = candidate.get("published_at")
+        existing.relevance_score = relevance_score
+        return
+
+    db.add(
+        ResearchItem(
+            topic_id=topic_id,
+            title=candidate["title"],
+            url=url,
+            source=candidate["source"],
+            summary=candidate.get("summary"),
+            published_at=candidate.get("published_at"),
+            relevance_score=relevance_score,
+        )
+    )
+
+
 def _existing_as_candidate(
     item: ResearchItem,
 ) -> dict:
@@ -1196,81 +1235,25 @@ def run_research(
             ]
         )
 
-        existing = (
-            existing_by_url.get(
-                candidate["url"]
-            )
-        )
-
-        if existing:
-            existing.title = (
-                candidate[
-                    "title"
-                ]
-            )
-
-            existing.source = (
-                candidate[
-                    "source"
-                ]
-            )
-
-            if candidate.get(
-                "summary"
-            ):
-                existing.summary = (
-                    candidate[
-                        "summary"
-                    ]
-                )
-
-            existing.published_at = (
-                candidate[
-                    "published_at"
-                ]
-            )
-
-            existing.relevance_score = (
-                relevance_score
-            )
-
-            continue
-
         if relevance_score <= 0:
             continue
 
-        db.add(
-            ResearchItem(
-                topic_id=topic.id,
-                title=(
-                    candidate[
-                        "title"
-                    ]
-                ),
-                url=(
-                    candidate[
-                        "url"
-                    ]
-                ),
-                source=(
-                    candidate[
-                        "source"
-                    ]
-                ),
-                summary=(
-                    candidate.get(
-                        "summary"
-                    )
-                ),
-                published_at=(
-                    candidate[
-                        "published_at"
-                    ]
-                ),
-                relevance_score=(
-                    relevance_score
-                ),
-            )
+        url = candidate["url"].strip()
+
+        if url in existing_by_url:
+            existing = existing_by_url[url]
+            existing.title = candidate["title"]
+            existing.source = candidate["source"]
+            existing.summary = candidate.get("summary")
+            existing.published_at = candidate.get("published_at")
+            existing.relevance_score = relevance_score
+            continue
+
+        _upsert_research_item(
+            db,
+            topic.id,
+            candidate,
+            relevance_score,
         )
 
     db.commit()

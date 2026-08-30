@@ -41,6 +41,13 @@ type ResearchItem = {
 };
 
 type Platform = "linkedin" | "x" | "facebook" | "blog";
+type PublishingStatus =
+  | "scheduled"
+  | "queued"
+  | "publishing"
+  | "published"
+  | "failed"
+  | "cancelled";
 
 type ContentDraft = {
   id: string;
@@ -53,6 +60,39 @@ type ContentDraft = {
   created_at: string;
   updated_at: string;
 };
+
+type PublishingJob = {
+  id: string;
+  draft_id: string;
+  platform: Platform;
+  status: PublishingStatus;
+  content_snapshot: string;
+  scheduled_at: string;
+  attempt_count: number;
+  max_attempts: number;
+  queued_at: string | null;
+  started_at: string | null;
+  published_at: string | null;
+  failed_at: string | null;
+  cancelled_at: string | null;
+  external_post_id: string | null;
+  external_post_url: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function toDateTimeLocalValue(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+
+  return `${local.getFullYear()}-${pad(local.getMonth() + 1)}-${pad(local.getDate())}T${pad(local.getHours())}:${pad(local.getMinutes())}`;
+}
+
+function buildFutureScheduleValue() {
+  const next = new Date(Date.now() + 2 * 60 * 60 * 1000);
+  return toDateTimeLocalValue(next);
+}
 
 const PLATFORM_LABELS: Record<Platform, string> = {
   linkedin: "LinkedIn",
@@ -79,6 +119,9 @@ export default function Home() {
   const [updatingStatus, setUpdatingStatus] = useState<
     "approved" | "rejected" | null
   >(null);
+  const [publishingJobs, setPublishingJobs] = useState<PublishingJob[]>([]);
+  const [schedulingDraft, setSchedulingDraft] = useState(false);
+  const [scheduleDateTime, setScheduleDateTime] = useState(() => buildFutureScheduleValue());
   const [error, setError] = useState<string | null>(null);
 
   async function loadTopics() {
@@ -126,6 +169,8 @@ export default function Home() {
           setLoadingTopics(false);
         }
       });
+
+    void loadPublishingJobs();
 
     return () => {
       cancelled = true;
@@ -369,6 +414,10 @@ export default function Home() {
       const updatedDraft: ContentDraft = await response.json();
       setSelectedDraft(updatedDraft);
       setDraftContent(updatedDraft.content);
+
+      if (nextStatus === "approved") {
+        await loadPublishingJobs();
+      }
     } catch (err) {
       console.error(err);
       setError(
@@ -378,6 +427,67 @@ export default function Home() {
       );
     } finally {
       setUpdatingStatus(null);
+    }
+  }
+
+  async function loadPublishingJobs() {
+    try {
+      const response = await fetch(`${API_URL}/api/v1/publishing/jobs`, {
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to load publishing jobs");
+      }
+
+      const data: PublishingJob[] = await response.json();
+      setPublishingJobs(data);
+    } catch (err) {
+      console.error(err);
+      setError("Unable to load publishing jobs.");
+    }
+  }
+
+  async function scheduleDraftForPublishing() {
+    if (!selectedDraft) {
+      return;
+    }
+
+    try {
+      setError(null);
+      setSchedulingDraft(true);
+
+      const parsedSchedule = new Date(scheduleDateTime);
+      const scheduledTimestamp = parsedSchedule.getTime();
+
+      if (Number.isNaN(scheduledTimestamp) || scheduledTimestamp <= Date.now()) {
+        throw new Error("Schedule time must be in the future.");
+      }
+
+      const scheduledAt = parsedSchedule.toISOString();
+      const response = await fetch(
+        `${API_URL}/api/v1/drafts/${selectedDraft.id}/schedule`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            scheduled_at: scheduledAt,
+            max_attempts: 3,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.detail || "Unable to schedule draft.");
+      }
+
+      await loadPublishingJobs();
+    } catch (err) {
+      console.error(err);
+      setError(err instanceof Error ? err.message : "Unable to schedule draft.");
+    } finally {
+      setSchedulingDraft(false);
     }
   }
 
@@ -423,6 +533,10 @@ export default function Home() {
     selectedTopicId !== null
       ? researchResults[selectedTopicId] || []
       : [];
+
+  const selectedDraftJobs = selectedDraft
+    ? publishingJobs.filter((job) => job.draft_id === selectedDraft.id)
+    : [];
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -923,6 +1037,89 @@ export default function Home() {
                       </button>
                     </div>
                   </div>
+
+                  {selectedDraft.status === "approved" && (
+                    <div className="border-t border-slate-800 pt-4">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium text-slate-200">
+                            Publish scheduling
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            Queue this approved draft for the cloud post bot.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-3 md:flex-row md:items-end">
+                        <div className="flex-1">
+                          <label
+                            htmlFor="schedule-time"
+                            className="mb-2 block text-xs font-medium uppercase tracking-wide text-slate-400"
+                          >
+                            Schedule time
+                          </label>
+                          <input
+                            id="schedule-time"
+                            type="datetime-local"
+                            min={toDateTimeLocalValue(new Date())}
+                            value={scheduleDateTime}
+                            onChange={(event) => setScheduleDateTime(event.target.value)}
+                            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-slate-200 outline-none transition focus:border-cyan-500"
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={schedulingDraft}
+                          onClick={() => void scheduleDraftForPublishing()}
+                          className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {schedulingDraft ? (
+                            <Loader2 size={15} className="animate-spin" />
+                          ) : (
+                            <Check size={15} />
+                          )}
+                          {schedulingDraft ? "Scheduling..." : "Schedule Post"}
+                        </button>
+                      </div>
+
+                      {selectedDraftJobs.length > 0 && (
+                        <div className="mt-4 space-y-2 rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+                          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                            Publishing jobs
+                          </p>
+
+                          {selectedDraftJobs.map((job) => (
+                            <div
+                              key={job.id}
+                              className="flex flex-col gap-1 rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-300"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="rounded-full bg-cyan-500/10 px-2 py-1 text-[10px] font-medium uppercase text-cyan-300">
+                                  {job.status}
+                                </span>
+                                <span className="text-slate-500">
+                                  {formatDate(job.scheduled_at)}
+                                </span>
+                              </div>
+
+                              {job.external_post_url && (
+                                <a
+                                  href={job.external_post_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-cyan-400 hover:text-cyan-300"
+                                >
+                                  Open published post
+                                </a>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </section>
             )}
