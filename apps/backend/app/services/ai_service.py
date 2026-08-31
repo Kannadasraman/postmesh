@@ -1064,7 +1064,7 @@ def generate_content(
                     "num_predict": 750,
                 },
             },
-            timeout=120.0,
+            timeout=15.0,
         )
 
         response.raise_for_status()

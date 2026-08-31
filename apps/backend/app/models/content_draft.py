@@ -73,6 +73,8 @@ class ContentDraft(Base):
         nullable=False,
     )
 
+    media_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     model_name: Mapped[str] = mapped_column(
         String(100),
         nullable=False,

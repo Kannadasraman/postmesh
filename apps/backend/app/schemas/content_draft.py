@@ -69,6 +69,7 @@ class ContentDraftResponse(BaseModel):
     review_notes: str | None = None
     request_next_post: bool = False
     content: str
+    media_url: str | None = None
     model_name: str
 
     created_at: datetime

@@ -1,7 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.generation import router as generation_router
+from app.api.media import draft_router as draft_media_router
+from app.api.media import router as media_router
 from app.api.connections import router as connections_router
 from app.api.publishing import router as publishing_router
 from app.api.research import router as research_router
@@ -44,5 +47,8 @@ def health_check():
 app.include_router(topics_router)
 app.include_router(research_router)
 app.include_router(generation_router)
+app.include_router(media_router)
+app.include_router(draft_media_router)
 app.include_router(connections_router)
+app.mount("/uploads", StaticFiles(directory="/app/uploads", check_dir=False), name="uploads")
 app.include_router(publishing_router)

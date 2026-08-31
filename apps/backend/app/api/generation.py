@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import quote_plus
 
 from fastapi import (
     APIRouter,
@@ -89,6 +90,9 @@ def generate_draft(
         approval_whatsapp=payload.approval_whatsapp,
         status="draft",
         content=content,
+        media_url=(
+            f"/api/v1/media/auto?topic={quote_plus(topic.name)}"
+        ),
         model_name=model_name,
     )
 
@@ -277,6 +281,7 @@ def update_draft_status(
                 approval_whatsapp=draft.approval_whatsapp,
                 status="draft",
                 content=next_content,
+                media_url=draft.media_url,
                 model_name=next_model_name,
             )
             db.add(next_draft)

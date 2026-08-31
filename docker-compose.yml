@@ -55,6 +55,7 @@ services:
       - "${BACKEND_PORT}:8000"
     volumes:
       - ./apps/backend/app:/app/app
+      - ./apps/backend/uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,6 +84,7 @@ services:
       REDIS_URL: ${REDIS_URL}
     volumes:
       - ./apps/backend/app:/app/app
+      - ./apps/backend/uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -110,6 +112,7 @@ services:
       REDIS_URL: ${REDIS_URL}
     volumes:
       - ./apps/backend/app:/app/app
+      - ./apps/backend/uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy

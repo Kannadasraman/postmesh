@@ -152,6 +152,7 @@ def publish_to_platform(draft: Any, job: Any | None = None) -> dict[str, Any]:
                 "platform": platform,
                 "draft_id": str(getattr(draft, "id", "")),
                 "job_id": str(getattr(job, "id", "")) if job else None,
+                "media_url": getattr(draft, "media_url", None),
             },
             headers=headers,
             timeout=30,

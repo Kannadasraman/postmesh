@@ -76,6 +76,7 @@ type ContentDraft = {
   review_notes?: string | null;
   request_next_post?: boolean;
   content: string;
+  media_url?: string | null;
   model_name: string;
   created_at: string;
   updated_at: string;
@@ -166,6 +167,7 @@ export default function Home() {
   const [draftContent, setDraftContent] = useState("");
   const [savingDraft, setSavingDraft] = useState(false);
   const [draftSaved, setDraftSaved] = useState(false);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState<
     "approved" | "rejected" | null
   >(null);
@@ -462,7 +464,11 @@ export default function Home() {
       if (!response.ok) {
         const body = await response.json().catch(() => null);
         if (response.status === 404) {
-          throw new Error("This research result is no longer available. Run research again and choose the refreshed result.");
+          const currentTopic = topics.find((topic) => topic.id === selectedTopicId);
+          if (currentTopic) {
+            await showSavedResearch(currentTopic);
+          }
+          throw new Error("This research result was refreshed. Choose Generate Post on the updated result.");
         }
         throw new Error(body?.detail || "Unable to generate draft.");
       }
@@ -519,6 +525,30 @@ export default function Home() {
       setError(err instanceof Error ? err.message : "Unable to save draft.");
     } finally {
       setSavingDraft(false);
+    }
+  }
+
+  async function uploadDraftMedia(file: File) {
+    if (!selectedDraft) return;
+    try {
+      setUploadingMedia(true);
+      setError(null);
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch(`${API_URL}/api/v1/drafts/${selectedDraft.id}/media`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.detail || "Unable to upload image.");
+      }
+      const result: { media_url: string } = await response.json();
+      setSelectedDraft({ ...selectedDraft, media_url: result.media_url });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to upload image.");
+    } finally {
+      setUploadingMedia(false);
     }
   }
 
@@ -1150,6 +1180,23 @@ export default function Home() {
                   rows={12}
                   className="w-full resize-y rounded-xl border border-slate-700 bg-slate-950 px-4 py-4 text-sm leading-7 text-slate-200 outline-none transition focus:border-cyan-500"
                 />
+
+                <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-slate-200">Post image</p>
+                      <p className="text-xs text-slate-500">An image is selected automatically. Upload your own to replace it.</p>
+                    </div>
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-300 hover:border-cyan-600 hover:text-cyan-300">
+                      {uploadingMedia ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                      Upload image
+                      <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" disabled={uploadingMedia} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadDraftMedia(file); event.target.value = ""; }} />
+                    </label>
+                  </div>
+                  {selectedDraft.media_url && (
+                    <img src={selectedDraft.media_url.startsWith("/") ? `${API_URL}${selectedDraft.media_url}` : selectedDraft.media_url} alt="Selected post media" className="max-h-72 w-full rounded-lg object-cover" />
+                  )}
+                </div>
 
                 <div className="mt-4 flex flex-col gap-4">
                   <div className="grid gap-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3 md:grid-cols-[1.2fr_0.8fr]">
