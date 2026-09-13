@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from urllib.parse import quote_plus
+from urllib.parse import urlencode
 
 from fastapi import (
     APIRouter,
@@ -91,7 +91,15 @@ def generate_draft(
         status="draft",
         content=content,
         media_url=(
-            f"/api/v1/media/auto?topic={quote_plus(topic.name)}"
+            "/api/v1/media/auto?"
+            + urlencode(
+                {
+                    "topic": topic.name,
+                    "title": research_item.title,
+                    "source": research_item.source,
+                    "article_url": research_item.url,
+                }
+            )
         ),
         model_name=model_name,
     )

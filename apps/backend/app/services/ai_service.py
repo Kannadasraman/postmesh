@@ -78,12 +78,90 @@ def _remove_duplicate_paragraphs(
     )
 
 
+def _evidence_backed_fallback(
+    evidence: EvidenceBundle,
+    platform: str,
+    topic_name: str,
+) -> str:
+    """Keep a useful factual post when the writer model cannot return one."""
+    boilerplate_markers = (
+        "please support",
+        "subscribe",
+        "sign up for",
+        "cookie",
+        "privacy policy",
+        "donation",
+    )
+    sentences = re.split(
+        r"(?<=[.!?])\s+",
+        re.sub(r"\s+", " ", evidence.summary).strip(),
+    )
+    selected: list[str] = []
+    total_chars = 0
+
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if (
+            len(sentence) < 45
+            or any(marker in sentence.lower() for marker in boilerplate_markers)
+        ):
+            continue
+        if total_chars + len(sentence) > 520:
+            break
+        selected.append(sentence)
+        total_chars += len(sentence) + 1
+        if len(selected) == 2:
+            break
+
+    summary = " ".join(selected) or evidence.title
+    hashtag = _topic_hashtag(topic_name)
+
+    if platform == "x":
+        return f"{evidence.source}: {summary}"[:260]
+
+    if platform == "instagram":
+        return f"{evidence.title}\n\n{summary}\n\n{hashtag} #NewsUpdate"
+
+    if platform == "threads":
+        return f"{evidence.title}\n\n{summary}"[:450]
+
+    if platform == "reddit":
+        return f"{evidence.title}\n\n{summary}\n\nSource: {evidence.source}"
+
+    if platform == "youtube":
+        return f"{evidence.title}\n\n{summary}\n\nSource: {evidence.source}"
+
+    if platform == "email":
+        return f"Subject: {evidence.title}\n\n{summary}\n\nSource: {evidence.source}"
+
+    if platform == "whatsapp":
+        return f"Update: {evidence.title}\n\n{summary}\n\nSource: {evidence.source}"
+
+    if platform == "blog":
+        return f"{evidence.title}\n\n{summary}\n\nSource: {evidence.source}"
+
+    if platform == "facebook":
+        return f"{evidence.title}\n\n{summary}\n\nSource: {evidence.source}"
+
+    return f"{evidence.title}\n\n{summary}\n\nSource: {evidence.source}\n\n{hashtag} #IndustryNews"
+
+
 def _limited_evidence_draft(
     research_item: ResearchItem,
     evidence: EvidenceBundle,
     platform: str,
     topic_name: str,
 ) -> str:
+    if is_useful_summary(
+        evidence.evidence_title or evidence.title,
+        evidence.summary,
+    ):
+        return _evidence_backed_fallback(
+            evidence=evidence,
+            platform=platform,
+            topic_name=topic_name,
+        )
+
     hashtag = _topic_hashtag(
         topic_name,
     )
@@ -125,9 +203,7 @@ def _limited_evidence_draft(
             (
                 f"{evidence.title}\n\n"
                 f"{evidence.source} has a new report "
-                f"related to {topic_name}.\n\n"
-                "The source page does not expose enough "
-                "verified detail for a fuller post yet."
+                f"related to {topic_name}."
             ),
             (
                 f"A new {topic_name} story:\n\n"
@@ -137,9 +213,7 @@ def _limited_evidence_draft(
             (
                 f"{evidence.source} is covering a new "
                 f"development in {topic_name}:\n\n"
-                f"{evidence.title}\n\n"
-                "More verified source context is needed "
-                "before adding detail."
+                f"{evidence.title}"
             ),
             (
                 f"On the {topic_name} radar today:\n\n"
@@ -152,62 +226,56 @@ def _limited_evidence_draft(
             variant
         ]
 
+    if platform == "linkedin":
+        return (
+            f"{evidence.title}\n\n"
+            f"{evidence.source} reports on this {topic_name} "
+            "development.\n\n"
+            f"{hashtag} #IndustryNews"
+        )
+
     if platform == "blog":
         return (
             f"{evidence.title}\n\n"
             f"{evidence.source} has surfaced a new "
-            f"story related to {topic_name}.\n\n"
-            "The source page currently exposes too little "
-            "verified article content for PostMesh to "
-            "produce a detailed factual article safely."
+            f"story related to {topic_name}."
         )
 
     if platform == "instagram":
         return (
             f"{evidence.title}\n\n"
-            f"{evidence.source} reports this {topic_name} development. "
-            "The accessible evidence is limited, so this caption stays "
-            "focused on the verified headline.\n\n"
+            f"{evidence.source} reports this {topic_name} development.\n\n"
             f"{hashtag} #IndustryNews"
         )
 
     if platform == "threads":
         return (
             f"{evidence.title}\n\n"
-            f"Reported by {evidence.source}. The available evidence is "
-            f"limited, so this {topic_name} update stays concise."
+            f"Reported by {evidence.source}."
         )
 
     if platform == "youtube":
         return (
             f"{evidence.title}\n\n"
-            f"{evidence.source} reports this {topic_name} development. "
-            "The accessible evidence is limited, so the description "
-            "stays focused on the verified details."
+            f"{evidence.source} reports this {topic_name} development."
         )
 
     if platform == "reddit":
         return (
             f"Title: {evidence.title}\n\n"
-            f"{evidence.source} reports this {topic_name} development. "
-            "The accessible evidence is limited, so this post avoids "
-            "adding unverified context."
+            f"{evidence.source} reports this {topic_name} development."
         )
 
     if platform == "email":
         return (
             f"Subject: {evidence.title}\n\n"
-            f"{evidence.source} reports this {topic_name} development. "
-            "The accessible evidence is limited, so this update stays "
-            "focused on the verified details."
+            f"{evidence.source} reports this {topic_name} development."
         )
 
     if platform == "whatsapp":
         return (
             f"{evidence.title}\n\n"
-            f"{evidence.source} reports this {topic_name} development. "
-            "The available evidence is limited, so this update stays "
-            "concise."
+            f"{evidence.source} reports this {topic_name} development."
         )
 
     variants = [
@@ -215,34 +283,22 @@ def _limited_evidence_draft(
             f"{evidence.title}\n\n"
             f"{evidence.source} is reporting this "
             f"{topic_name} development.\n\n"
-            "The accessible source material is limited, "
-            "so the headline is the main verified signal "
-            "available right now.\n\n"
             f"{hashtag} #IndustryNews"
         ),
         (
-            f"One to watch in {topic_name}:\n\n"
             f"{evidence.title}\n\n"
-            f"Reported by {evidence.source}. "
-            "The accessible article evidence is still "
-            "too limited for a more detailed post.\n\n"
+            f"Reported by {evidence.source}.\n\n"
             f"{hashtag} #NewsUpdate"
         ),
         (
             f"{evidence.title}\n\n"
-            f"This {evidence.source} story is relevant "
-            f"to {topic_name}, but the source page does "
-            "not expose enough verified detail to expand "
-            "on the headline safely.\n\n"
+            f"A {topic_name} report from {evidence.source}.\n\n"
             f"{hashtag} #IndustryNews"
         ),
         (
             f"New in {topic_name}:\n\n"
             f"{evidence.title}\n\n"
             f"Source: {evidence.source}\n\n"
-            "The accessible source evidence is not "
-            "detailed enough for a fuller factual "
-            "summary yet.\n\n"
             f"{hashtag} #NewsUpdate"
         ),
     ]
@@ -260,54 +316,63 @@ def build_prompt(
     platform_instructions = {
         "linkedin": (
             "Write a polished professional LinkedIn post between "
-            "90 and 150 words. Start with the most important "
-            "verified development, use short paragraphs, and "
-            "end with 2 to 4 relevant hashtags. Stay tightly "
+            "90 and 150 words. Use a strong factual opening, then "
+            "two short paragraphs that explain the development and "
+            "its directly supported context. End with 2 to 4 relevant "
+            "hashtags. Stay tightly "
             "focused on the selected story. Do not add a "
             "question, call to action, lesson, generic industry "
             "commentary, or tangential financial results."
         ),
         "x": (
-            "Write one concise X post no longer than "
-            "260 characters. Include the most important "
-            "verified fact, not generic commentary."
+            "Write one punchy X post no longer than 260 characters: "
+            "a news hook followed by one concrete verified detail. "
+            "Use at most two hashtags and no line longer than needed."
         ),
         "facebook": (
             "Write a conversational Facebook post "
-            "between 80 and 160 words. Focus on the "
-            "specific verified development."
+            "between 80 and 160 words. Use a headline-style first "
+            "sentence, then a plain-language explanation in one or "
+            "two paragraphs. Use no more than two hashtags."
         ),
         "instagram": (
             "Write an Instagram caption between 80 and 180 words. "
-            "Use short paragraphs, no more than 5 relevant hashtags, "
-            "and only verified story details. Do not add a call to action."
+            "Start with a concise headline, then use short, visual "
+            "sentences that describe the verified news context. End "
+            "with 3 to 5 relevant hashtags and no call to action."
         ),
         "threads": (
             "Write one natural Threads post no longer than 450 characters. "
-            "Use a concise, conversational structure and only verified facts."
+            "Use two compact paragraphs: the news first, followed by "
+            "one supported detail. Do not use hashtags."
         ),
         "youtube": (
             "Write a YouTube package with a single short title on the first "
-            "line, then a description of 100 to 180 words. Keep the title "
-            "specific and the description grounded in the evidence."
+            "line, then a description of 100 to 180 words with a short "
+            "context paragraph and a 'What happened' paragraph. Keep the "
+            "title specific and the description grounded in the evidence."
         ),
         "reddit": (
             "Write a Reddit post with a clear title on the first line and "
-            "a neutral body of 100 to 220 words. Do not use marketing copy, "
-            "excessive hashtags, or a call to action."
+            "a neutral body of 100 to 220 words. Summarize the reported "
+            "facts and name the source once. Do not use marketing copy, "
+            "hashtags, or a call to action."
         ),
         "whatsapp": (
-            "Write a WhatsApp-ready update under 700 characters. Use plain "
-            "text, short paragraphs, and no more than 2 hashtags."
+            "Write a WhatsApp-ready update under 700 characters. Start "
+            "with 'Update:' and use plain text, short paragraphs, and no "
+            "hashtags."
         ),
         "email": (
             "Write an email update with a concise subject line on the first "
-            "line, followed by a professional body of 100 to 180 words."
+            "line, followed by a professional body of 100 to 180 words "
+            "with a summary paragraph and a source-attributed details paragraph."
         ),
         "blog": (
             "Write a concise factual blog draft between "
-            "300 and 500 words. Use only the supplied "
-            "evidence and do not pad the article."
+            "300 and 500 words. Include a headline, a two-sentence "
+            "lead, and 2 to 3 brief body paragraphs. Use only the "
+            "supplied evidence and do not pad the article."
         ),
     }
 
@@ -997,9 +1062,7 @@ def _grounding_failure_fallback(
 
     return (
         f"{research_item.title}\n\n"
-        f"Supporting reporting from {evidence.source} confirms "
-        "this development. The available verified evidence is "
-        "limited, so this draft intentionally stays concise.\n\n"
+        f"Reported by {evidence.source}.\n\n"
         f"{hashtag} #IndustryNews"
     )
 
@@ -1012,7 +1075,7 @@ def generate_content(
 ) -> tuple[str, str]:
     evidence = get_research_evidence(
         research_item,
-        db=None,
+        db=db,
     )
 
     if not is_useful_summary(
@@ -1064,7 +1127,10 @@ def generate_content(
                     "num_predict": 750,
                 },
             },
-            timeout=15.0,
+            # llama3.1:8b routinely needs more than 15 seconds for a
+            # grounded long-form draft, especially when another request is
+            # using Ollama. Avoid discarding usable evidence for a timeout.
+            timeout=60.0,
         )
 
         response.raise_for_status()
@@ -1164,6 +1230,33 @@ def generate_content(
     )
 
     if issues:
+        repaired = _repair_grounding(
+            content=content,
+            evidence=evidence,
+            platform=platform,
+            topic_name=topic_name,
+            issues=issues,
+        )
+        repaired = _clean_generated_content(
+            repaired,
+        )
+
+        if platform == "linkedin":
+            repaired = _ensure_linkedin_hashtags(
+                repaired,
+                topic_name,
+            )
+
+        if repaired and not _draft_grounding_issues(
+            repaired,
+            evidence,
+            platform,
+        ):
+            return (
+                repaired,
+                WRITER_MODEL,
+            )
+
         return (
             _grounding_failure_fallback(
                 research_item=research_item,
