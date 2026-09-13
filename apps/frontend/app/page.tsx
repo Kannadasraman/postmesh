@@ -171,6 +171,7 @@ export default function Home() {
   const [updatingStatus, setUpdatingStatus] = useState<
     "approved" | "rejected" | null
   >(null);
+  const [postingNow, setPostingNow] = useState(false);
   const [publishingJobs, setPublishingJobs] = useState<PublishingJob[]>([]);
   const [schedulingDraft, setSchedulingDraft] = useState(false);
   const [scheduleDateTime, setScheduleDateTime] = useState(() => buildFutureScheduleValue());
@@ -618,6 +619,27 @@ export default function Home() {
     } catch (err) {
       console.error(err);
       setError("Unable to load publishing jobs.");
+    }
+  }
+
+  async function publishDraftNow() {
+    if (!selectedDraft || postingNow) return;
+    setPostingNow(true);
+    setError(null);
+    try {
+      const response = await fetch(`${API_URL}/api/v1/drafts/${selectedDraft.id}/publish-now`, {
+        method: "POST",
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.detail || "Unable to post now.");
+      const job: PublishingJob = body;
+      setPublishingJobs((jobs) => [job, ...jobs.filter((item) => item.id !== job.id)]);
+      if (job.status === "failed") setError(job.last_error || "Publishing failed.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to post now. Check the job history before retrying.");
+      await loadPublishingJobs();
+    } finally {
+      setPostingNow(false);
     }
   }
 
@@ -1339,12 +1361,26 @@ export default function Home() {
                       <div className="mb-3 flex items-center justify-between gap-3">
                         <div>
                           <p className="text-sm font-medium text-slate-200">
-                            Publish scheduling
+                            Publish this draft
                           </p>
                           <p className="text-xs text-slate-500">
-                            Queue this approved draft for the cloud post bot.
+                            Post now for testing, or choose a time for later. Post now sends a real post to the configured destination.
                           </p>
                         </div>
+                      </div>
+
+                      <div className="mb-4 flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          disabled={postingNow || schedulingDraft || selectedDraftJobs.some((job) => ["publishing", "published"].includes(job.status))}
+                          onClick={() => void publishDraftNow()}
+                          className="inline-flex items-center gap-2 rounded-lg bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {postingNow && <Loader2 size={15} className="animate-spin" />}
+                          {postingNow ? "Posting…" : "Post now"}
+                        </button>
+                        <span className="text-xs text-slate-400">Uses the saved draft. A pending scheduled job will run now.</span>
+                        <button type="button" onClick={() => void loadPublishingJobs()} className="text-xs text-cyan-400">Refresh status</button>
                       </div>
 
                       <div className="flex flex-col gap-3 md:flex-row md:items-end">
@@ -1367,7 +1403,7 @@ export default function Home() {
 
                         <button
                           type="button"
-                          disabled={schedulingDraft}
+                          disabled={schedulingDraft || postingNow || selectedDraftJobs.some((job) => ["scheduled", "queued", "publishing", "published"].includes(job.status))}
                           onClick={() => void scheduleDraftForPublishing()}
                           className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
                         >
@@ -1400,7 +1436,11 @@ export default function Home() {
                                 </span>
                               </div>
 
-                              {job.external_post_url && (
+                              {job.last_error && <p role="alert" className="text-red-300">{job.last_error}</p>}
+                              {job.status === "published" && !job.external_post_url && (
+                                <p>Provider reported success. Check the destination for the post.</p>
+                              )}
+                              {job.external_post_url && /^https?:\/\//.test(job.external_post_url) && (
                                 <a
                                   href={job.external_post_url}
                                   target="_blank"

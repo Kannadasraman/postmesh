@@ -101,7 +101,7 @@ def send_approval_request(draft: Any, channel: str, recipient: str | None, email
 
 def publish_to_platform(draft: Any, job: Any | None = None) -> dict[str, Any]:
     platform = str(draft.platform).lower()
-    content = getattr(draft, "content", "")
+    content = job.content_snapshot if job is not None else getattr(draft, "content", "")
 
     if not content:
         return {"status": "skipped", "platform": platform, "reason": "empty content"}
@@ -142,6 +142,57 @@ def publish_to_platform(draft: Any, job: Any | None = None) -> dict[str, Any]:
                 ).decode()
     finally:
         db.close()
+
+    if platform == "facebook" and connection and connection.account_id and access_token:
+        media_url = getattr(draft, "media_url", None)
+
+        if media_url:
+            resolved_media_url = media_url
+            if resolved_media_url.startswith("/"):
+                resolved_media_url = f"http://127.0.0.1:8000{resolved_media_url}"
+
+            image_response = httpx.get(
+                resolved_media_url,
+                follow_redirects=True,
+                timeout=30,
+            )
+            image_response.raise_for_status()
+            content_type = image_response.headers.get(
+                "content-type",
+                "image/jpeg",
+            ).split(";", 1)[0]
+
+            if not content_type.startswith("image/"):
+                raise ValueError("Selected post media is not an image")
+
+            response = httpx.post(
+                f"https://graph.facebook.com/v20.0/{connection.account_id}/photos",
+                data={"caption": content, "access_token": access_token},
+                files={
+                    "source": (
+                        "postmesh-image",
+                        image_response.content,
+                        content_type,
+                    )
+                },
+                timeout=60,
+            )
+        else:
+            response = httpx.post(
+                f"https://graph.facebook.com/v20.0/{connection.account_id}/feed",
+                data={"message": content, "access_token": access_token},
+                timeout=30,
+            )
+        response.raise_for_status()
+        payload = response.json()
+        return {
+            "status": "posted",
+            "platform": platform,
+            "response": {
+                "id": payload.get("id"),
+                "url": f"https://www.facebook.com/{payload.get('id', '')}",
+            },
+        }
 
     if provider_url:
         headers = {"Authorization": f"Bearer {access_token}"} if access_token else None

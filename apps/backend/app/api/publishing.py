@@ -19,7 +19,7 @@ from app.schemas.publishing_job import (
     PublishingScheduleRequest,
     PublishingStatus,
 )
-
+from app.services.publishing_service import execute_publishing_job
 
 router = APIRouter(
     tags=["Publishing"],
@@ -56,9 +56,8 @@ def _get_job_or_404(
     job_id: uuid.UUID,
     db: Session,
 ) -> PublishingJob:
-    job = db.get(
-        PublishingJob,
-        job_id,
+    job = db.scalar(
+        select(PublishingJob).where(PublishingJob.id == job_id).with_for_update()
     )
 
     if job is None:
@@ -80,10 +79,9 @@ def schedule_draft(
     payload: PublishingScheduleRequest,
     db: Session = Depends(get_db),
 ):
-    draft = _get_draft_or_404(
-        draft_id,
-        db,
-    )
+    draft = db.scalar(select(ContentDraft).where(ContentDraft.id == draft_id).with_for_update())
+    if draft is None:
+        raise HTTPException(status_code=404, detail="Draft not found")
 
     if draft.status != "approved":
         raise HTTPException(
@@ -259,4 +257,43 @@ def cancel_publishing_job(
         job,
     )
 
+    return job
+
+
+@router.post(
+    "/api/v1/drafts/{draft_id}/publish-now",
+    response_model=PublishingJobResponse,
+)
+def publish_draft_now(draft_id: uuid.UUID, db: Session = Depends(get_db)):
+    # Lock the draft before checking/creating a job, so repeated clicks serialize.
+    draft = db.scalar(select(ContentDraft).where(ContentDraft.id == draft_id).with_for_update())
+    if draft is None:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    if draft.status != "approved":
+        raise HTTPException(status_code=409, detail="Approve the draft before posting.")
+    jobs = list(db.scalars(
+        select(PublishingJob)
+        .where(PublishingJob.draft_id == draft_id, PublishingJob.status.in_(BLOCKING_JOB_STATUSES))
+        .order_by(PublishingJob.created_at.desc())
+        .with_for_update()
+    ).all())
+    if any(job.status in {"published", "publishing"} for job in jobs):
+        raise HTTPException(status_code=409, detail="This draft is already publishing or marked published. Check its job history and destination before creating another draft.")
+    if len(jobs) > 1:
+        raise HTTPException(status_code=409, detail="This draft has multiple pending jobs. Cancel the extra jobs before posting.")
+    now = datetime.now(timezone.utc)
+    job = jobs[0] if jobs else PublishingJob(
+        draft_id=draft.id, platform=draft.platform, content_snapshot=draft.content,
+        scheduled_at=now, status="queued", attempt_count=0, max_attempts=1,
+    )
+    db.add(job)
+    job.scheduled_at = now
+    job.queued_at = now
+    # Queued jobs have already had their attempt counted by the scheduler.
+    if job.status != "queued" or not job.attempt_count:
+        job.attempt_count = (job.attempt_count or 0) + 1
+    db.flush()
+    execute_publishing_job(draft, job)
+    db.commit()
+    db.refresh(job)
     return job

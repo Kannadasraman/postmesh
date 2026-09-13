@@ -97,7 +97,11 @@ def start_oauth(provider: str):
     elif provider == "linkedin":
         query_values["scope"] = "openid profile email"
     else:
-        query_values["scope"] = "pages_manage_posts,pages_read_user_content"
+        query_values["scope"] = (
+            "pages_show_list,"
+            "pages_read_engagement,"
+            "pages_manage_posts"
+        )
     query = urllib.parse.urlencode(query_values)
     return {"authorization_url": f"{authorization_url}?{query}"}
 
@@ -123,7 +127,25 @@ def oauth_callback(provider: str, code: str = Query(...), state: str = Query(...
     token = response.json().get("access_token")
     if not token:
         raise HTTPException(status_code=502, detail="Provider did not return an access token")
-    connection = SocialConnection(provider=provider, account_name=f"{provider.title()} account", encrypted_access_token=_fernet().encrypt(token.encode()).decode())
+    account_name = f"{provider.title()} account"
+    account_id = None
+    if provider == "facebook":
+        pages_response = httpx.get(
+            "https://graph.facebook.com/v20.0/me/accounts",
+            params={"fields": "id,name,access_token", "access_token": token},
+            timeout=30,
+        )
+        pages_response.raise_for_status()
+        pages = pages_response.json().get("data", [])
+        if not pages:
+            raise HTTPException(status_code=403, detail="No Facebook Pages are available for this account")
+        page = pages[0]
+        token = page.get("access_token") or ""
+        account_id = page.get("id")
+        account_name = page.get("name") or "Facebook Page"
+        if not token or not account_id:
+            raise HTTPException(status_code=502, detail="Meta did not return a usable Facebook Page token")
+    connection = SocialConnection(provider=provider, account_name=account_name, account_id=account_id, encrypted_access_token=_fernet().encrypt(token.encode()).decode())
     db.add(connection)
     db.commit()
     db.refresh(connection)

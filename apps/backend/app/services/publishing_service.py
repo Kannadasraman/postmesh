@@ -1,13 +1,13 @@
 import uuid
 from datetime import datetime, timezone
 
+import httpx
 from sqlalchemy import select
 
 from app.db.database import SessionLocal
 from app.models.content_draft import ContentDraft
 from app.models.publishing_job import PublishingJob
 from app.services.social_integration import publish_to_platform
-
 
 DEFAULT_DUE_JOB_BATCH_SIZE = 50
 MAX_DUE_JOB_BATCH_SIZE = 500
@@ -94,10 +94,6 @@ def publish_queued_jobs(
 
     try:
         with db.begin():
-            now = datetime.now(
-                timezone.utc,
-            )
-
             jobs = db.scalars(
                 select(PublishingJob)
                 .where(
@@ -126,41 +122,40 @@ def publish_queued_jobs(
                     job.draft_id,
                 )
 
-                job.status = "publishing"
-                job.started_at = now
-                job.last_error = None
-
-                try:
-                    if draft is not None:
-                        result = publish_to_platform(draft, job)
-                        job.last_error = None
-                        if result.get("status") == "posted":
-                            job.external_post_id = str(result.get("response", {}).get("id", job.id))
-                            job.external_post_url = result.get("response", {}).get("url") or f"https://cloudpost.local/posts/{job.id}"
-                        elif result.get("status") == "simulated":
-                            job.external_post_url = result.get("message") or f"https://cloudpost.local/posts/{job.id}"
-                        elif result.get("status") == "sent":
-                            job.external_post_url = result.get("channel") or "approval-request"
-                    else:
-                        result = {"status": "simulated", "reason": "draft missing"}
-
-                    job.status = "published"
-                    job.published_at = now
-                    if job.external_post_id is None:
-                        job.external_post_id = str(job.id)
-                    if job.external_post_url is None:
-                        job.external_post_url = f"https://cloudpost.local/posts/{job.id}"
-
-                    published_ids.append(
-                        job.id,
-                    )
-
-                except Exception as exc:  # pragma: no cover - runtime integration fallback
-                    job.status = "failed"
-                    job.failed_at = now
-                    job.last_error = str(exc)
+                execute_publishing_job(draft, job)
+                if job.status == "published":
+                    published_ids.append(job.id)
 
         return published_ids
 
     finally:
         db.close()
+
+
+def execute_publishing_job(draft: ContentDraft | None, job: PublishingJob) -> None:
+    """Run one attempt; only a confirmed provider result counts as published."""
+    job.status = "publishing"
+    job.started_at = datetime.now(timezone.utc)
+    job.last_error = None
+    try:
+        if draft is None:
+            raise ValueError("Draft no longer exists.")
+        result = publish_to_platform(draft, job)
+        if result.get("status") not in {"posted", "sent"}:
+            raise ValueError(result.get("message") or result.get("reason") or "Provider did not confirm publication.")
+        response = result.get("response") or {}
+        post_id = response.get("id") or (response.get("data") or {}).get("id")
+        if result.get("status") == "posted" and not post_id:
+            raise ValueError("Provider returned no post ID. Check the destination before retrying.")
+        job.external_post_id = str(post_id) if post_id else None
+        job.external_post_url = response.get("url")
+        job.status = "published"
+        job.published_at = datetime.now(timezone.utc)
+    except Exception as exc:
+        job.status = "failed"
+        job.failed_at = datetime.now(timezone.utc)
+        # HTTP exception strings can include credential-bearing provider URLs.
+        if isinstance(exc, httpx.HTTPError):
+            job.last_error = "The publishing provider request failed. Check the destination before retrying."
+        else:
+            job.last_error = str(exc)
