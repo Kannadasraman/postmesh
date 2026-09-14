@@ -484,7 +484,6 @@ export default function Home() {
         });
       });
     } catch (err) {
-      console.error(err);
       setError(err instanceof Error ? err.message : "Unable to generate draft.");
     } finally {
       setGeneratingResearchId(null);
@@ -514,6 +513,11 @@ export default function Home() {
 
       if (!response.ok) {
         const body = await response.json().catch(() => null);
+        if (response.status === 404) {
+          setSelectedDraft(null);
+          setDraftContent("");
+          throw new Error("This draft no longer exists. Generate a new post from a research result.");
+        }
         throw new Error(body?.detail || "Unable to save draft.");
       }
 
@@ -522,7 +526,6 @@ export default function Home() {
       setDraftContent(updatedDraft.content);
       setDraftSaved(true);
     } catch (err) {
-      console.error(err);
       setError(err instanceof Error ? err.message : "Unable to save draft.");
     } finally {
       setSavingDraft(false);

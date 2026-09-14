@@ -105,7 +105,7 @@ def _story_fallback_image(topic: str, title: str, source: str) -> Response:
         for index, line in enumerate(_headline_lines(title.strip()))
     )
     svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-        <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y1="1"><stop stop-color="#082f49"/><stop offset="1" stop-color="#164e63"/></linearGradient></defs>
+        <defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#082f49"/><stop offset="1" stop-color="#164e63"/></linearGradient></defs>
         <rect width="1200" height="630" fill="url(#bg)"/>
         <circle cx="1020" cy="100" r="230" fill="#22d3ee" opacity=".16"/>
         <path d="M0 500 C260 390 390 600 650 470 S980 370 1200 430 V630 H0Z" fill="#020617" opacity=".55"/>

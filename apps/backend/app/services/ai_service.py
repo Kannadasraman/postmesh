@@ -1085,24 +1085,9 @@ def generate_content(
         ),
         evidence.summary,
     ):
-        content = (
-            _limited_evidence_draft(
-                research_item=research_item,
-                evidence=evidence,
-                platform=platform,
-                topic_name=topic_name,
-            )
-        )
-
-        content = (
-            _remove_duplicate_paragraphs(
-                content,
-            )
-        )
-
-        return (
-            content,
-            "grounded-template-v3",
+        raise AIServiceError(
+            "This source does not expose enough verified article evidence. "
+            "Choose another research result."
         )
 
     prompt = build_prompt(

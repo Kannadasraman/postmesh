@@ -1,4 +1,5 @@
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.config import settings
 
@@ -9,6 +10,7 @@ celery_app = Celery(
     backend=settings.redis_url,
     include=[
         "app.tasks.publishing",
+        "app.tasks.daily_approvals",
     ],
 )
 
@@ -28,6 +30,10 @@ celery_app.conf.update(
                 "process_due_publishing_jobs"
             ),
             "schedule": 30.0,
+        },
+        "send-daily-approval-options": {
+            "task": "app.tasks.daily_approvals.send_daily_approval_options",
+            "schedule": crontab(hour=3, minute=30),
         },
     },
 )
