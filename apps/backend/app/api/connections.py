@@ -64,6 +64,7 @@ def create_connection(payload: SocialConnectionCreate, db: Session = Depends(get
     connection = SocialConnection(
         provider=payload.provider,
         account_name=payload.account_name.strip(),
+        account_id=payload.account_id.strip() if payload.account_id else None,
         encrypted_access_token=encrypted_token,
         api_url=payload.api_url,
     )

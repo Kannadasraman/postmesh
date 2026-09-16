@@ -40,6 +40,18 @@ class Topic(Base):
         default="daily",
     )
 
+    posting_platform: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="linkedin",
+    )
+
+    approval_email: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        default=None,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -9,6 +9,8 @@ class TopicCreate(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     active: bool = True
     research_frequency: str = "daily"
+    posting_platform: str = "linkedin"
+    approval_email: str | None = None
 
 
 class TopicResponse(BaseModel):
@@ -19,5 +21,7 @@ class TopicResponse(BaseModel):
     keywords: list[str]
     active: bool
     research_frequency: str
+    posting_platform: str
+    approval_email: str | None = None
     created_at: datetime
     updated_at: datetime

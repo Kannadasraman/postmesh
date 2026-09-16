@@ -31,6 +31,8 @@ def topic_to_response(topic: Topic) -> TopicResponse:
         keywords=keywords,
         active=topic.active,
         research_frequency=topic.research_frequency,
+        posting_platform=topic.posting_platform,
+        approval_email=topic.approval_email,
         created_at=topic.created_at,
         updated_at=topic.updated_at,
     )
@@ -50,6 +52,8 @@ def create_topic(
         keywords=", ".join(payload.keywords),
         active=payload.active,
         research_frequency=payload.research_frequency,
+        posting_platform=payload.posting_platform,
+        approval_email=str(payload.approval_email) if payload.approval_email else None,
     )
 
     db.add(topic)

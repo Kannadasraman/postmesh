@@ -1,6 +1,16 @@
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _normalize_email_secret(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return "".join(
+        ch for ch in value
+        if ch not in {"\u00a0", "\u2007", "\u202f", "\ufeff"}
+    ).strip()
 
 
 def _env_file_candidates() -> list[str]:
@@ -41,6 +51,19 @@ class Settings(BaseSettings):
     smtp_password: str | None = None
     smtp_use_tls: bool = True
     email_from: str | None = None
+    default_approval_email: str | None = None
+    email_approval_secret: str = "postmesh-dev-secret"
+    app_base_url: str = "http://localhost:8002"
+
+    @field_validator("smtp_password")
+    @classmethod
+    def normalize_smtp_password(cls, value: str | None) -> str | None:
+        return _normalize_email_secret(value)
+
+    @field_validator("email_from")
+    @classmethod
+    def normalize_email_from(cls, value: str | None) -> str | None:
+        return _normalize_email_secret(value)
 
     linkedin_api_url: str | None = None
     x_api_url: str | None = None

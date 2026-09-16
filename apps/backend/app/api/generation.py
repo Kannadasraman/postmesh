@@ -68,7 +68,7 @@ def generate_draft(
         content, model_name = (
             generate_content(
                 research_item=research_item,
-                platform=payload.platform,
+                platform=topic.posting_platform,
                 topic_name=topic.name,
                 db=db,
             )
@@ -80,13 +80,18 @@ def generate_draft(
             detail=str(exc),
         ) from exc
 
+    recipient_for_email = (
+        payload.approval_email
+        or topic.approval_email
+        or payload.approval_recipient
+    )
     draft = ContentDraft(
         topic_id=research_item.topic_id,
         research_item_id=research_item.id,
-        platform=payload.platform,
+        platform=topic.posting_platform,
         approval_channel=payload.approval_channel,
         approval_recipient=payload.approval_recipient,
-        approval_email=payload.approval_email,
+        approval_email=recipient_for_email,
         approval_whatsapp=payload.approval_whatsapp,
         status="draft",
         content=content,
@@ -116,7 +121,7 @@ def generate_draft(
                 draft,
                 payload.approval_channel,
                 payload.approval_recipient,
-                email_recipient=payload.approval_email,
+                email_recipient=recipient_for_email,
                 whatsapp_recipient=payload.approval_whatsapp,
             )
         except Exception as exc:  # pragma: no cover - runtime integration path

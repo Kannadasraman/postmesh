@@ -25,6 +25,8 @@ type Topic = {
   keywords: string[];
   active: boolean;
   research_frequency: string;
+  posting_platform: Platform;
+  approval_email?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -150,12 +152,14 @@ export default function Home() {
   const [topics, setTopics] = useState<Topic[]>([]);
   const [topicName, setTopicName] = useState("");
   const [keywords, setKeywords] = useState("");
+  const [topicResearchFrequency, setTopicResearchFrequency] = useState<"daily" | "weekly" | "monthly">("daily");
+  const [topicPostingPlatform, setTopicPostingPlatform] = useState<Platform>("linkedin");
+  const [topicApprovalEmail, setTopicApprovalEmail] = useState("");
   const [loadingTopics, setLoadingTopics] = useState(true);
   const [creatingTopic, setCreatingTopic] = useState(false);
   const [researchingTopicId, setResearchingTopicId] = useState<string | null>(null);
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
   const [researchResults, setResearchResults] = useState<Record<string, ResearchItem[]>>({});
-  const [platformByResearchId, setPlatformByResearchId] = useState<Record<string, Platform>>({});
   const [approvalChannel, setApprovalChannel] = useState<ApprovalChannel>("in_app");
   const [approvalRecipient, setApprovalRecipient] = useState("");
   const [approvalEmail, setApprovalEmail] = useState("");
@@ -179,6 +183,7 @@ export default function Home() {
   const [connections, setConnections] = useState<SocialConnection[]>([]);
   const [connectionProvider, setConnectionProvider] = useState<Platform>("linkedin");
   const [connectionName, setConnectionName] = useState("");
+  const [connectionAccountId, setConnectionAccountId] = useState("");
   const [connectionToken, setConnectionToken] = useState("");
   const [connectionApiUrl, setConnectionApiUrl] = useState("");
   const [savingConnection, setSavingConnection] = useState(false);
@@ -271,6 +276,7 @@ export default function Home() {
         body: JSON.stringify({
           provider: connectionProvider,
           account_name: connectionName.trim(),
+          account_id: connectionAccountId.trim() || null,
           access_token: connectionToken.trim() || null,
           api_url: connectionApiUrl.trim() || null,
         }),
@@ -280,6 +286,7 @@ export default function Home() {
         throw new Error(body?.detail || "Unable to connect account.");
       }
       setConnectionName("");
+      setConnectionAccountId("");
       setConnectionToken("");
       setConnectionApiUrl("");
       await loadConnections();
@@ -306,6 +313,14 @@ export default function Home() {
     if (response.ok) setConnections((current) => current.filter((item) => item.id !== connectionId));
   }
 
+  function isPlatformConnected(platform: Platform) {
+    return connections.some(
+      (connection) =>
+        connection.provider.toLowerCase() === platform &&
+        connection.status.toLowerCase() === "connected",
+    );
+  }
+
   async function createTopic(event: FormEvent) {
     event.preventDefault();
 
@@ -329,7 +344,9 @@ export default function Home() {
           name: topicName.trim(),
           keywords: parsedKeywords,
           active: true,
-          research_frequency: "daily",
+          research_frequency: topicResearchFrequency,
+          posting_platform: topicPostingPlatform,
+          approval_email: topicApprovalEmail.trim() || null,
         }),
       });
 
@@ -339,6 +356,9 @@ export default function Home() {
 
       setTopicName("");
       setKeywords("");
+      setTopicResearchFrequency("daily");
+      setTopicPostingPlatform("linkedin");
+      setTopicApprovalEmail("");
       await loadTopics();
     } catch (err) {
       console.error(err);
@@ -440,13 +460,14 @@ export default function Home() {
   }
 
   async function generateDraft(item: ResearchItem) {
-    const platform = platformByResearchId[item.id] || "linkedin";
+    const platform = selectedTopic?.posting_platform || "linkedin";
 
     try {
       setError(null);
       setDraftSaved(false);
       setGeneratingResearchId(item.id);
 
+      const emailRecipient = approvalEmail.trim() || approvalRecipient.trim() || null;
       const response = await fetch(
         `${API_URL}/api/v1/research/${item.id}/generate`,
         {
@@ -455,8 +476,8 @@ export default function Home() {
           body: JSON.stringify({
             platform,
             approval_channel: approvalChannel,
-            approval_recipient: approvalRecipient.trim() || null,
-            approval_email: approvalEmail.trim() || null,
+            approval_recipient: approvalChannel === "email" ? emailRecipient : approvalRecipient.trim() || null,
+            approval_email: emailRecipient,
             approval_whatsapp: approvalWhatsapp.trim() || null,
           }),
         },
@@ -775,6 +796,7 @@ export default function Home() {
                 </select>
                 <input required value={connectionName} onChange={(event) => setConnectionName(event.target.value)} placeholder="Account name" className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />
               </div>
+              <input value={connectionAccountId} onChange={(event) => setConnectionAccountId(event.target.value)} placeholder={connectionProvider === "facebook" ? "Facebook Page ID" : "Account ID (optional)"} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />
               <input type="password" value={connectionToken} onChange={(event) => setConnectionToken(event.target.value)} placeholder="Access token (stored encrypted)" className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />
               <input type="url" value={connectionApiUrl} onChange={(event) => setConnectionApiUrl(event.target.value)} placeholder="Provider endpoint (optional)" className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />
               <button disabled={savingConnection} className="inline-flex items-center gap-2 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50">
@@ -848,6 +870,65 @@ export default function Home() {
                   <p className="mt-2 text-xs text-slate-500">
                     Separate keywords with commas.
                   </p>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="topic-frequency"
+                    className="mb-2 block text-sm font-medium text-slate-300"
+                  >
+                    Posting frequency
+                  </label>
+                  <select
+                    id="topic-frequency"
+                    value={topicResearchFrequency}
+                    onChange={(event) => setTopicResearchFrequency(event.target.value as "daily" | "weekly" | "monthly")}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-200 outline-none transition focus:border-cyan-500"
+                  >
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="topic-platform"
+                    className="mb-2 block text-sm font-medium text-slate-300"
+                  >
+                    Posting platform
+                  </label>
+                  <select
+                    id="topic-platform"
+                    value={topicPostingPlatform}
+                    onChange={(event) => setTopicPostingPlatform(event.target.value as Platform)}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm text-slate-200 outline-none transition focus:border-cyan-500"
+                  >
+                    {Object.entries(PLATFORM_LABELS)
+                      .filter(([value]) => value !== "email" && value !== "whatsapp")
+                      .map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="topic-approval-email"
+                    className="mb-2 block text-sm font-medium text-slate-300"
+                  >
+                    Approval email
+                  </label>
+                  <input
+                    id="topic-approval-email"
+                    type="email"
+                    value={topicApprovalEmail}
+                    onChange={(event) => setTopicApprovalEmail(event.target.value)}
+                    placeholder="approvals@company.com"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none transition placeholder:text-slate-600 focus:border-cyan-500"
+                  />
                 </div>
 
                 <button
@@ -933,6 +1014,7 @@ export default function Home() {
                   {topics.map((topic) => {
                     const isResearching = researchingTopicId === topic.id;
                     const savedCount = researchResults[topic.id]?.length;
+                    const platformConnected = isPlatformConnected(topic.posting_platform);
 
                     return (
                       <div
@@ -957,6 +1039,28 @@ export default function Home() {
                                 ? topic.keywords.join(", ")
                                 : "No additional keywords"}
                             </p>
+                            <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                              <span className="rounded-full bg-slate-800 px-2 py-1 text-slate-300">
+                                {topic.research_frequency} research
+                              </span>
+                              <span className="rounded-full bg-cyan-500/10 px-2 py-1 text-cyan-300">
+                                {PLATFORM_LABELS[topic.posting_platform] || topic.posting_platform}
+                              </span>
+                              <span
+                                className={`rounded-full px-2 py-1 ${
+                                  platformConnected
+                                    ? "border border-emerald-900 bg-emerald-950/60 text-emerald-300"
+                                    : "border border-amber-900 bg-amber-950/50 text-amber-300"
+                                }`}
+                              >
+                                {platformConnected ? "Connected" : "Not connected"}
+                              </span>
+                            </div>
+                            {topic.approval_email && (
+                              <p className="mt-1 text-[11px] text-cyan-300">
+                                Approval email: {topic.approval_email}
+                              </p>
+                            )}
                           </div>
 
                           <div className="flex flex-wrap items-center gap-2">
@@ -1047,8 +1151,7 @@ export default function Home() {
               ) : (
                 <div className="space-y-3">
                   {selectedResearch.map((item, index) => {
-                    const platform =
-                      platformByResearchId[item.id] || "linkedin";
+                    const platform = selectedTopic?.posting_platform || "linkedin";
                     const isGenerating =
                       generatingResearchId === item.id;
 
@@ -1098,24 +1201,9 @@ export default function Home() {
                                 <ExternalLink size={13} />
                               </a>
 
-                              <select
-                                value={platform}
-                                onChange={(event) =>
-                                  setPlatformByResearchId((current) => ({
-                                    ...current,
-                                    [item.id]: event.target.value as Platform,
-                                  }))
-                                }
-                                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-200 outline-none focus:border-cyan-500"
-                              >
-                                {Object.entries(PLATFORM_LABELS).map(
-                                  ([value, label]) => (
-                                    <option key={value} value={value}>
-                                      {label}
-                                    </option>
-                                  ),
-                                )}
-                              </select>
+                              <span className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-300">
+                                Platform: {PLATFORM_LABELS[platform] || platform}
+                              </span>
 
                               <button
                                 type="button"
@@ -1247,6 +1335,19 @@ export default function Home() {
                         <input type="email" value={approvalEmail} onChange={(event) => setApprovalEmail(event.target.value)} placeholder="Approval email" className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />
                         <input type="tel" value={approvalWhatsapp} onChange={(event) => setApprovalWhatsapp(event.target.value)} placeholder="WhatsApp number" className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />
                       </div>
+                    ) : approvalChannel === "email" ? (
+                      <div>
+                        <label className="mb-2 block text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                          Approval email
+                        </label>
+                        <input
+                          type="email"
+                          value={approvalEmail}
+                          onChange={(event) => setApprovalEmail(event.target.value)}
+                          placeholder="team@company.com"
+                          className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
+                        />
+                      </div>
                     ) : (
                       <div>
                         <label className="mb-2 block text-[11px] font-medium uppercase tracking-wide text-slate-400">
@@ -1255,7 +1356,7 @@ export default function Home() {
                         <input
                           value={approvalRecipient}
                           onChange={(event) => setApprovalRecipient(event.target.value)}
-                          placeholder={approvalChannel === "email" ? "team@company.com" : approvalChannel === "whatsapp" ? "+15551234567" : "Optional"}
+                          placeholder={approvalChannel === "whatsapp" ? "+15551234567" : "Optional"}
                           className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500"
                         />
                       </div>
