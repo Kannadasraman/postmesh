@@ -75,6 +75,8 @@ class Settings(BaseSettings):
     blog_api_url: str | None = None
     connections_encryption_key: str | None = None
     frontend_url: str = "http://localhost:3000"
+    auth_jwt_secret: str = "postmesh-development-auth-secret-change-me"
+    auth_token_days: int = 14
     oauth_linkedin_client_id: str | None = None
     oauth_linkedin_client_secret: str | None = None
     oauth_x_client_id: str | None = None

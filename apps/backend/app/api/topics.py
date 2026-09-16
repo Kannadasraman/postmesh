@@ -4,8 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.auth import get_current_user
 from app.db.database import get_db
 from app.models.topic import Topic
+from app.models.user import User
 from app.schemas.topic import TopicCreate, TopicResponse
 
 
@@ -46,8 +48,10 @@ def topic_to_response(topic: Topic) -> TopicResponse:
 def create_topic(
     payload: TopicCreate,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     topic = Topic(
+        user_id=user.id,
         name=payload.name,
         keywords=", ".join(payload.keywords),
         active=payload.active,
@@ -69,9 +73,10 @@ def create_topic(
 )
 def list_topics(
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     topics = db.scalars(
-        select(Topic).order_by(Topic.created_at.desc())
+        select(Topic).where(Topic.user_id == user.id).order_by(Topic.created_at.desc())
     ).all()
 
     return [topic_to_response(topic) for topic in topics]
@@ -84,8 +89,9 @@ def list_topics(
 def delete_topic(
     topic_id: uuid.UUID,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    topic = db.get(Topic, topic_id)
+    topic = db.scalar(select(Topic).where(Topic.id == topic_id, Topic.user_id == user.id))
 
     if topic is None:
         raise HTTPException(

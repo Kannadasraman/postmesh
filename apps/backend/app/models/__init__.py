@@ -4,6 +4,7 @@ from app.models.publishing_job import PublishingJob
 from app.models.research_item import ResearchItem
 from app.models.social_connection import SocialConnection
 from app.models.topic import Topic
+from app.models.user import User
 
 __all__ = [
     "Topic",
@@ -12,4 +13,5 @@ __all__ = [
     "ContentDraft",
     "PublishingJob",
     "SocialConnection",
+    "User",
 ]

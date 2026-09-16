@@ -1137,6 +1137,7 @@ def _upsert_research_item(
 
     db.add(
         ResearchItem(
+            user_id=db.get(Topic, topic_id).user_id,
             topic_id=topic_id,
             title=candidate["title"],
             url=url,

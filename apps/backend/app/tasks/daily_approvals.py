@@ -97,7 +97,7 @@ def _build_digest_email_body(drafts: list[ContentDraft]) -> tuple[str, str]:
 @shared_task(name="app.tasks.daily_approvals.send_daily_approval_options")
 def send_daily_approval_options() -> dict[str, object]:
     """Send one digest email with the best topic options and direct review links."""
-    recipient = settings.default_approval_email or settings.email_from or "admin@example.com"
+    default_recipient = settings.default_approval_email or settings.email_from or "admin@example.com"
     top_research = _select_top_research(limit=5)
     if not top_research:
         return {"status": "skipped", "reason": "No active topics found"}
@@ -118,11 +118,12 @@ def send_daily_approval_options() -> dict[str, object]:
                 continue
 
             draft = ContentDraft(
+                user_id=topic.user_id,
                 topic_id=topic.id,
                 research_item_id=item.id,
                 platform=platform,
                 approval_channel="email",
-                approval_email=recipient,
+                approval_email=topic.approval_email or default_recipient,
                 approval_recipient=None,
                 approval_whatsapp=None,
                 status="draft",
@@ -149,30 +150,34 @@ def send_daily_approval_options() -> dict[str, object]:
         if not drafts:
             return {"status": "skipped", "reason": "No drafts generated for top topics"}
 
-        plain_text, html_body = _build_digest_email_body(drafts)
-        message = EmailMessage()
-        message["Subject"] = "PostMesh: top 5 topic options for approval"
-        message["From"] = settings.email_from or recipient
-        message["To"] = recipient
-        message.set_content(plain_text)
-        message.add_alternative(html_body, subtype="html")
-        html_part = message.get_body(preferencelist=("html",))
+        recipients: dict[str, list[ContentDraft]] = {}
         for draft in drafts:
-            media = _media_part(draft)
-            if media and html_part is not None:
-                cid, data, maintype, subtype = media
-                html_part.add_related(data, maintype=maintype, subtype=subtype, cid=f"<{cid}>")
+            recipients.setdefault(draft.approval_email or default_recipient, []).append(draft)
 
         with smtplib.SMTP(settings.smtp_host, settings.smtp_port or 587) as server:
             if settings.smtp_use_tls:
                 server.starttls()
             if settings.smtp_username and settings.smtp_password:
                 server.login(settings.smtp_username, settings.smtp_password)
-            server.send_message(message)
+            for recipient, recipient_drafts in recipients.items():
+                plain_text, html_body = _build_digest_email_body(recipient_drafts)
+                message = EmailMessage()
+                message["Subject"] = "PostMesh: topic options for approval"
+                message["From"] = settings.email_from or recipient
+                message["To"] = recipient
+                message.set_content(plain_text)
+                message.add_alternative(html_body, subtype="html")
+                html_part = message.get_body(preferencelist=("html",))
+                for draft in recipient_drafts:
+                    media = _media_part(draft)
+                    if media and html_part is not None:
+                        cid, data, maintype, subtype = media
+                        html_part.add_related(data, maintype=maintype, subtype=subtype, cid=f"<{cid}>")
+                server.send_message(message)
 
         return {
             "status": "sent",
-            "recipient": recipient,
+            "recipients": list(recipients),
             "topic_count": len(drafts),
             "draft_ids": [str(draft.id) for draft in drafts],
         }

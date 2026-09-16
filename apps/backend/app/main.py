@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.approvals import router as approvals_router
+from app.api.auth import router as auth_router
 from app.api.generation import router as generation_router
 from app.api.media import draft_router as draft_media_router
 from app.api.media import router as media_router
@@ -23,7 +24,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:3001",
     ],
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=[
         "GET",
         "POST",
@@ -33,6 +34,7 @@ app.add_middleware(
     ],
     allow_headers=[
         "Content-Type",
+        "Authorization",
     ],
 )
 
@@ -46,6 +48,7 @@ def health_check():
 
 
 app.include_router(topics_router)
+app.include_router(auth_router)
 app.include_router(research_router)
 app.include_router(generation_router)
 app.include_router(media_router)

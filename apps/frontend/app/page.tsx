@@ -19,6 +19,13 @@ import { useEffect, useState, type FormEvent } from "react";
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8002";
 
+const fetch = (input: RequestInfo | URL, init: RequestInit = {}) => {
+  const token = typeof window === "undefined" ? null : window.localStorage.getItem("postmesh_access_token");
+  const headers = new Headers(init.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return globalThis.fetch(input, { ...init, headers, credentials: "include" });
+};
+
 type Topic = {
   id: string;
   name: string;
@@ -187,6 +194,37 @@ export default function Home() {
   const [connectionToken, setConnectionToken] = useState("");
   const [connectionApiUrl, setConnectionApiUrl] = useState("");
   const [savingConnection, setSavingConnection] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authDisplayName, setAuthDisplayName] = useState("");
+
+  async function submitAuth(event: FormEvent) {
+    event.preventDefault();
+    try {
+      const response = await globalThis.fetch(`${API_URL}/api/v1/auth/${authMode}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email: authEmail, password: authPassword, display_name: authDisplayName }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.detail || "Unable to authenticate.");
+      window.localStorage.setItem("postmesh_access_token", body.access_token);
+      setAuthenticated(true);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to authenticate.");
+    }
+  }
+
+  async function signOut() {
+    await globalThis.fetch(`${API_URL}/api/v1/auth/logout`, { method: "POST", credentials: "include" });
+    window.localStorage.removeItem("postmesh_access_token");
+    setAuthenticated(false);
+  }
 
   async function loadConnections() {
     const response = await fetch(`${API_URL}/api/v1/connections`, { cache: "no-store" });
@@ -217,6 +255,15 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
+
+    if (!window.localStorage.getItem("postmesh_access_token")) {
+      setAuthLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+    setAuthenticated(true);
+    setAuthLoading(false);
 
     fetch(`${API_URL}/api/v1/topics`, { cache: "no-store" })
       .then((response) => {
@@ -249,6 +296,16 @@ export default function Home() {
     const oauthProvider = params.get("oauth_provider");
     const oauthCode = params.get("code");
     const oauthState = params.get("state");
+    const oauthConnected = params.get("connected");
+    const oauthError = params.get("oauth_error");
+    if (oauthProvider === "linkedin" && oauthConnected === "1") {
+      void loadConnections();
+      window.history.replaceState({}, "", "/");
+    }
+    if (oauthProvider === "linkedin" && oauthError) {
+      setError(`LinkedIn authorization failed: ${oauthError}`);
+      window.history.replaceState({}, "", "/");
+    }
     if (oauthProvider && oauthCode && oauthState) {
       fetch(`${API_URL}/api/v1/connections/${oauthProvider}/oauth/callback?${new URLSearchParams({ code: oauthCode, state: oauthState })}`)
         .then((response) => {
@@ -267,6 +324,12 @@ export default function Home() {
 
   async function connectAccount(event: FormEvent) {
     event.preventDefault();
+
+    if (["linkedin", "x", "facebook"].includes(connectionProvider)) {
+      await startSso(connectionProvider);
+      return;
+    }
+
     try {
       setSavingConnection(true);
       setError(null);
@@ -757,6 +820,35 @@ export default function Home() {
     ? publishingJobs.filter((job) => job.draft_id === selectedDraft.id)
     : [];
 
+  if (authLoading) {
+    return <main className="flex min-h-screen items-center justify-center bg-slate-950 text-sm text-slate-400">Loading PostMesh...</main>;
+  }
+
+  if (!authenticated) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-slate-100">
+        <section className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/80 p-8 shadow-2xl">
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold">PostMesh</h1>
+            <p className="mt-2 text-sm text-slate-400">Sign in to manage your topics and publishing accounts.</p>
+          </div>
+          {error && <div className="mb-4 rounded-lg border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-300">{error}</div>}
+          <form onSubmit={submitAuth} className="space-y-4">
+            {authMode === "register" && (
+              <input value={authDisplayName} onChange={(event) => setAuthDisplayName(event.target.value)} placeholder="Display name" required className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none focus:border-cyan-500" />
+            )}
+            <input type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="Email address" required className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none focus:border-cyan-500" />
+            <input type="password" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} placeholder="Password" minLength={8} required className="w-full rounded-lg border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none focus:border-cyan-500" />
+            <button type="submit" className="w-full rounded-lg bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-cyan-400">{authMode === "login" ? "Sign in" : "Create account"}</button>
+          </form>
+          <button type="button" onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setError(null); }} className="mt-5 text-sm text-cyan-300 hover:text-cyan-200">
+            {authMode === "login" ? "Create a new account" : "Already have an account? Sign in"}
+          </button>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-7xl px-6 py-10">
@@ -774,8 +866,13 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="rounded-full border border-slate-700 bg-slate-900 px-4 py-2 text-xs text-slate-400">
-            MVP · AI Generation
+          <div className="flex items-center gap-3">
+            <div className="rounded-full border border-slate-700 bg-slate-900 px-4 py-2 text-xs text-slate-400">
+              MVP · AI Generation
+            </div>
+            <button type="button" onClick={() => void signOut()} className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:border-slate-500">
+              Sign out
+            </button>
           </div>
         </header>
 
@@ -794,13 +891,16 @@ export default function Home() {
                 <select value={connectionProvider} onChange={(event) => setConnectionProvider(event.target.value as Platform)} className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500">
                   {(["linkedin", "x", "facebook", "instagram", "threads", "youtube", "reddit", "blog"] as Platform[]).map((provider) => <option key={provider} value={provider}>{PLATFORM_LABELS[provider]}</option>)}
                 </select>
-                <input required value={connectionName} onChange={(event) => setConnectionName(event.target.value)} placeholder="Account name" className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />
+                {!["linkedin", "x", "facebook"].includes(connectionProvider) && <input required value={connectionName} onChange={(event) => setConnectionName(event.target.value)} placeholder="Account name" className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />}
               </div>
-              <input value={connectionAccountId} onChange={(event) => setConnectionAccountId(event.target.value)} placeholder={connectionProvider === "facebook" ? "Facebook Page ID" : "Account ID (optional)"} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />
-              <input type="password" value={connectionToken} onChange={(event) => setConnectionToken(event.target.value)} placeholder="Access token (stored encrypted)" className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />
-              <input type="url" value={connectionApiUrl} onChange={(event) => setConnectionApiUrl(event.target.value)} placeholder="Provider endpoint (optional)" className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />
+              {!["linkedin", "x", "facebook"].includes(connectionProvider) && <>
+                <input value={connectionAccountId} onChange={(event) => setConnectionAccountId(event.target.value)} placeholder="Account ID (optional)" className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />
+                <input type="password" value={connectionToken} onChange={(event) => setConnectionToken(event.target.value)} placeholder="Access token (stored encrypted)" className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />
+                <input type="url" value={connectionApiUrl} onChange={(event) => setConnectionApiUrl(event.target.value)} placeholder="Provider endpoint (optional)" className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 outline-none focus:border-cyan-500" />
+              </>}
+              {["linkedin", "x", "facebook"].includes(connectionProvider) && <p className="text-xs text-slate-500">You will be redirected to {PLATFORM_LABELS[connectionProvider]} to sign in and approve access.</p>}
               <button disabled={savingConnection} className="inline-flex items-center gap-2 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50">
-                {savingConnection ? <Loader2 size={15} className="animate-spin" /> : <Link2 size={15} />} Add account
+                {savingConnection ? <Loader2 size={15} className="animate-spin" /> : <Link2 size={15} />} {["linkedin", "x", "facebook"].includes(connectionProvider) ? `Connect with ${PLATFORM_LABELS[connectionProvider]}` : "Add account"}
               </button>
             </form>
 

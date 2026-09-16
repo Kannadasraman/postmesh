@@ -219,6 +219,7 @@ def publish_to_platform(draft: Any, job: Any | None = None) -> dict[str, Any]:
         connection = db.query(SocialConnection).filter(
             SocialConnection.provider == platform,
             SocialConnection.status == "connected",
+            SocialConnection.user_id == getattr(draft, "user_id", None),
         ).order_by(SocialConnection.created_at.desc()).first()
         if connection:
             provider_url = connection.api_url or provider_url
@@ -277,6 +278,41 @@ def publish_to_platform(draft: Any, job: Any | None = None) -> dict[str, Any]:
             "response": {
                 "id": payload.get("id"),
                 "url": f"https://www.facebook.com/{payload.get('id', '')}",
+            },
+        }
+
+    if platform == "linkedin" and connection and connection.account_id and access_token:
+        response = httpx.post(
+            "https://api.linkedin.com/v2/ugcPosts",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+                "X-Restli-Protocol-Version": "2.0.0",
+            },
+            json={
+                "author": f"urn:li:person:{connection.account_id}",
+                "lifecycleState": "PUBLISHED",
+                "specificContent": {
+                    "com.linkedin.ugc.ShareContent": {
+                        "shareCommentary": {"text": content},
+                        "shareMediaCategory": "NONE",
+                    }
+                },
+                "visibility": {
+                    "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
+                },
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        post_id = payload.get("id")
+        return {
+            "status": "posted",
+            "platform": platform,
+            "response": {
+                "id": post_id,
+                "url": f"https://www.linkedin.com/feed/update/{post_id}" if post_id else None,
             },
         }
 

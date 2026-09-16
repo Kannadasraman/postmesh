@@ -7,10 +7,13 @@ from urllib.parse import urljoin
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from fastapi.responses import RedirectResponse, Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.auth import get_current_user
 from app.db.database import get_db
 from app.models.content_draft import ContentDraft
+from app.models.user import User
 from app.services.evidence_service import _resolve_source_url, _safe_public_url
 
 router = APIRouter(tags=["Draft media"])
@@ -140,8 +143,9 @@ async def upload_draft_media(
     draft_id: uuid.UUID,
     file: UploadFile,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    draft = db.get(ContentDraft, draft_id)
+    draft = db.scalar(select(ContentDraft).where(ContentDraft.id == draft_id, ContentDraft.user_id == user.id))
     if draft is None:
         raise HTTPException(status_code=404, detail="Draft not found")
     if file.content_type not in ALLOWED_TYPES:

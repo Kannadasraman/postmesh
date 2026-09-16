@@ -11,11 +11,13 @@ from fastapi import (
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.auth import get_current_user
 from app.db.database import get_db
 from app.models.content_draft import ContentDraft
 from app.models.publishing_job import PublishingJob
 from app.models.research_item import ResearchItem
 from app.models.topic import Topic
+from app.models.user import User
 from app.schemas.content_draft import (
     ContentDraftResponse,
     DraftGenerateRequest,
@@ -41,13 +43,14 @@ def generate_draft(
     research_item_id: uuid.UUID,
     payload: DraftGenerateRequest,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     research_item = db.get(
         ResearchItem,
         research_item_id,
     )
 
-    if research_item is None:
+    if research_item is None or research_item.user_id != user.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Research item not found",
@@ -58,7 +61,7 @@ def generate_draft(
         research_item.topic_id,
     )
 
-    if topic is None:
+    if topic is None or topic.user_id != user.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Topic not found",
@@ -86,6 +89,7 @@ def generate_draft(
         or payload.approval_recipient
     )
     draft = ContentDraft(
+        user_id=user.id,
         topic_id=research_item.topic_id,
         research_item_id=research_item.id,
         platform=topic.posting_platform,
@@ -142,13 +146,14 @@ def generate_draft(
 def list_topic_drafts(
     topic_id: uuid.UUID,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     topic = db.get(
         Topic,
         topic_id,
     )
 
-    if topic is None:
+    if topic is None or topic.user_id != user.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Topic not found",
@@ -159,6 +164,7 @@ def list_topic_drafts(
         .where(
             ContentDraft.topic_id
             == topic_id,
+            ContentDraft.user_id == user.id,
         )
         .order_by(
             ContentDraft.updated_at.desc(),
@@ -176,13 +182,14 @@ def update_draft(
     draft_id: uuid.UUID,
     payload: DraftUpdateRequest,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     draft = db.get(
         ContentDraft,
         draft_id,
     )
 
-    if draft is None:
+    if draft is None or draft.user_id != user.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Draft not found",
@@ -222,13 +229,14 @@ def update_draft_status(
     draft_id: uuid.UUID,
     payload: DraftStatusUpdateRequest,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     draft = db.get(
         ContentDraft,
         draft_id,
     )
 
-    if draft is None:
+    if draft is None or draft.user_id != user.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Draft not found",
@@ -255,6 +263,7 @@ def update_draft_status(
         if active_job is None:
             db.add(
                 PublishingJob(
+                    user_id=user.id,
                     draft_id=draft.id,
                     platform=draft.platform,
                     status="scheduled",
@@ -285,6 +294,7 @@ def update_draft_status(
                 db=db,
             )
             next_draft = ContentDraft(
+                user_id=user.id,
                 topic_id=draft.topic_id,
                 research_item_id=draft.research_item_id,
                 platform=draft.platform,

@@ -11,6 +11,7 @@ from fastapi import (
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.auth import get_current_user
 from app.db.database import get_db
 from app.models.content_draft import ContentDraft
 from app.models.publishing_job import PublishingJob
@@ -20,6 +21,7 @@ from app.schemas.publishing_job import (
     PublishingStatus,
 )
 from app.services.publishing_service import execute_publishing_job
+from app.models.user import User
 
 router = APIRouter(
     tags=["Publishing"],
@@ -37,11 +39,9 @@ BLOCKING_JOB_STATUSES = (
 def _get_draft_or_404(
     draft_id: uuid.UUID,
     db: Session,
+    user: User,
 ) -> ContentDraft:
-    draft = db.get(
-        ContentDraft,
-        draft_id,
-    )
+    draft = db.scalar(select(ContentDraft).where(ContentDraft.id == draft_id, ContentDraft.user_id == user.id))
 
     if draft is None:
         raise HTTPException(
@@ -55,9 +55,10 @@ def _get_draft_or_404(
 def _get_job_or_404(
     job_id: uuid.UUID,
     db: Session,
+    user: User,
 ) -> PublishingJob:
     job = db.scalar(
-        select(PublishingJob).where(PublishingJob.id == job_id).with_for_update()
+        select(PublishingJob).where(PublishingJob.id == job_id, PublishingJob.user_id == user.id).with_for_update()
     )
 
     if job is None:
@@ -78,8 +79,9 @@ def schedule_draft(
     draft_id: uuid.UUID,
     payload: PublishingScheduleRequest,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    draft = db.scalar(select(ContentDraft).where(ContentDraft.id == draft_id).with_for_update())
+    draft = db.scalar(select(ContentDraft).where(ContentDraft.id == draft_id, ContentDraft.user_id == user.id).with_for_update())
     if draft is None:
         raise HTTPException(status_code=404, detail="Draft not found")
 
@@ -165,6 +167,7 @@ def list_publishing_jobs(
         alias="status",
     ),
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     statement = select(
         PublishingJob,
@@ -175,6 +178,7 @@ def list_publishing_jobs(
             PublishingJob.status
             == job_status,
         )
+    statement = statement.where(PublishingJob.user_id == user.id)
 
     jobs = db.scalars(
         statement.order_by(
@@ -197,17 +201,16 @@ def list_publishing_jobs(
 def list_draft_publishing_jobs(
     draft_id: uuid.UUID,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    _get_draft_or_404(
-        draft_id,
-        db,
-    )
+    _get_draft_or_404(draft_id, db, user)
 
     jobs = db.scalars(
         select(PublishingJob)
         .where(
             PublishingJob.draft_id
             == draft_id,
+            PublishingJob.user_id == user.id,
         )
         .order_by(
             PublishingJob.created_at.desc(),
@@ -226,11 +229,9 @@ def list_draft_publishing_jobs(
 def cancel_publishing_job(
     job_id: uuid.UUID,
     db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    job = _get_job_or_404(
-        job_id,
-        db,
-    )
+    job = _get_job_or_404(job_id, db, user)
 
     if job.status == "cancelled":
         return job
@@ -264,25 +265,30 @@ def cancel_publishing_job(
     "/api/v1/drafts/{draft_id}/publish-now",
     response_model=PublishingJobResponse,
 )
-def publish_draft_now(draft_id: uuid.UUID, db: Session = Depends(get_db)):
+def publish_draft_now(draft_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     # Lock the draft before checking/creating a job, so repeated clicks serialize.
-    draft = db.scalar(select(ContentDraft).where(ContentDraft.id == draft_id).with_for_update())
+    draft_query = select(ContentDraft).where(ContentDraft.id == draft_id)
+    if isinstance(user, User):
+        draft_query = draft_query.where(ContentDraft.user_id == user.id)
+    draft = db.scalar(draft_query.with_for_update())
     if draft is None:
         raise HTTPException(status_code=404, detail="Draft not found")
     if draft.status != "approved":
         raise HTTPException(status_code=409, detail="Approve the draft before posting.")
-    jobs = list(db.scalars(
-        select(PublishingJob)
-        .where(PublishingJob.draft_id == draft_id, PublishingJob.status.in_(BLOCKING_JOB_STATUSES))
-        .order_by(PublishingJob.created_at.desc())
-        .with_for_update()
-    ).all())
+    jobs_query = select(PublishingJob).where(
+        PublishingJob.draft_id == draft_id,
+        PublishingJob.status.in_(BLOCKING_JOB_STATUSES),
+    )
+    if isinstance(user, User):
+        jobs_query = jobs_query.where(PublishingJob.user_id == user.id)
+    jobs = list(db.scalars(jobs_query.order_by(PublishingJob.created_at.desc()).with_for_update()).all())
     if any(job.status in {"published", "publishing"} for job in jobs):
         raise HTTPException(status_code=409, detail="This draft is already publishing or marked published. Check its job history and destination before creating another draft.")
     if len(jobs) > 1:
         raise HTTPException(status_code=409, detail="This draft has multiple pending jobs. Cancel the extra jobs before posting.")
     now = datetime.now(timezone.utc)
     job = jobs[0] if jobs else PublishingJob(
+        user_id=user.id if isinstance(user, User) else draft.user_id,
         draft_id=draft.id, platform=draft.platform, content_snapshot=draft.content,
         scheduled_at=now, status="queued", attempt_count=0, max_attempts=1,
     )

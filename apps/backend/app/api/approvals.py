@@ -106,6 +106,7 @@ def approve_from_email(
     if job is None:
         now = datetime.now(timezone.utc)
         job = PublishingJob(
+            user_id=draft.user_id,
             draft_id=draft.id,
             platform=draft.platform,
             status="queued",
