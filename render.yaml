@@ -1,0 +1,58 @@
+services:
+  - type: web
+    name: postmesh-api
+    runtime: docker
+    rootDir: apps/backend
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    dockerCommand: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: APP_ENV
+        value: production
+      - key: APP_BASE_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: CONNECTIONS_ENCRYPTION_KEY
+        generateValue: true
+      - key: AUTH_JWT_SECRET
+        generateValue: true
+      - key: EMAIL_APPROVAL_SECRET
+        generateValue: true
+      - key: OLLAMA_BASE_URL
+        sync: false
+      - key: OLLAMA_MODEL
+        value: llama3.2:3b
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_USE_TLS
+        value: "true"
+      - key: EMAIL_FROM
+        sync: false
+      - key: DEFAULT_APPROVAL_EMAIL
+        sync: false
+      - key: OAUTH_LINKEDIN_CLIENT_ID
+        sync: false
+      - key: OAUTH_LINKEDIN_CLIENT_SECRET
+        sync: false
+      - key: OAUTH_FACEBOOK_CLIENT_ID
+        sync: false
+      - key: OAUTH_FACEBOOK_CLIENT_SECRET
+        sync: false
+      - key: OAUTH_X_CLIENT_ID
+        sync: false
+      - key: OAUTH_X_CLIENT_SECRET
+        sync: false
