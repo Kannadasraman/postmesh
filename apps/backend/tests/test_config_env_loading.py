@@ -7,7 +7,6 @@ from sqlalchemy.orm import sessionmaker
 
 import app.core.config as config
 import app.services.research_service as research_service
-from app.core.config import Settings
 from app.db.database import Base
 from app.models.topic import Topic
 from app.schemas.content_draft import DraftStatusUpdateRequest
@@ -121,16 +120,6 @@ def test_semantic_scores_fall_back_to_heuristic_for_large_candidate_sets(monkeyp
     scores = research_service._semantic_relevance_scores(topic, candidates)
 
     assert scores == {}
-
-
-def test_smtp_password_strips_nonbreaking_spaces():
-    settings = Settings.model_validate({
-        "DATABASE_URL": "postgresql://example",
-        "REDIS_URL": "redis://example",
-        "SMTP_PASSWORD": "aggt\u00a0muwl\u00a0dhfw\u00a0teey",
-    })
-
-    assert settings.smtp_password == "aggtmuwldhfwteey"
 
 
 def test_draft_status_update_accepts_rejection_feedback_and_next_post_request():

@@ -11,7 +11,6 @@ Provider = Literal["linkedin", "x", "facebook", "instagram", "threads", "youtube
 class SocialConnectionCreate(BaseModel):
     provider: Provider
     account_name: str = Field(min_length=1, max_length=255)
-    account_id: str | None = Field(default=None, max_length=255)
     access_token: str | None = Field(default=None, min_length=1)
     api_url: str | None = None
 
